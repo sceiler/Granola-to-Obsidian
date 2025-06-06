@@ -3,9 +3,9 @@
 	"name": "Granola Sync",
 	"version": "1.0.0",
 	"minAppVersion": "0.15.0",
-	"description": "Sync your Granola AI notes to your Obsidian vault with customizable settings.",
+	"description": "Sync your Granola AI notes to your vault with customizable settings.",
 	"author": "Danny McClelland",
-	"authorUrl": "",
+	"authorUrl": "https://github.com/dannymcc/",
 	"fundingUrl": "",
 	"isDesktopOnly": true
 }
