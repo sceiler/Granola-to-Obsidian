@@ -1,0 +1,8 @@
+{
+  "syncDirectory": "Notes/Granola",
+  "notePrefix": "",
+  "authKeyPath": "Library/Application Support/Granola/supabase.json",
+  "filenameTemplate": "{created_date} - {title}",
+  "dateFormat": "DD-MM-YYYY",
+  "autoSyncFrequency": 300000
+}

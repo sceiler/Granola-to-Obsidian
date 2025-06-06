@@ -1,0 +1,42 @@
+/* Granola Sync Plugin Styles */
+
+.granola-sync-settings {
+    padding: 20px;
+}
+
+.granola-sync-settings h2 {
+    color: var(--text-accent);
+    margin-bottom: 20px;
+}
+
+.granola-sync-button {
+    background-color: var(--interactive-accent);
+    color: var(--text-on-accent);
+    border: none;
+    border-radius: 4px;
+    padding: 8px 16px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: background-color 0.2s ease;
+}
+
+.granola-sync-button:hover {
+    background-color: var(--interactive-accent-hover);
+}
+
+.granola-sync-status {
+    padding: 10px;
+    border-radius: 4px;
+    margin-top: 10px;
+    font-size: 12px;
+}
+
+.granola-sync-status.success {
+    background-color: var(--background-modifier-success);
+    color: var(--text-success);
+}
+
+.granola-sync-status.error {
+    background-color: var(--background-modifier-error);
+    color: var(--text-error);
+}
