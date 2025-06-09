@@ -11,7 +11,8 @@ const DEFAULT_SETTINGS = {
 	dateFormat: 'YYYY-MM-DD',
 	autoSyncFrequency: 300000,
 	enableDailyNoteIntegration: false,
-	dailyNoteSectionName: '## Granola Meetings'
+	dailyNoteSectionName: '## Granola Meetings',
+	showRibbonIcon: true
 };
 
 class GranolaSyncPlugin extends obsidian.Plugin {
@@ -19,6 +20,7 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 		this.autoSyncInterval = null;
 		this.settings = DEFAULT_SETTINGS;
 		this.statusBarItem = null;
+		this.ribbonIconEl = null;
 		
 		try {
 			const data = await this.loadData();
@@ -32,9 +34,8 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 		this.statusBarItem = this.addStatusBarItem();
 		this.updateStatusBar('Idle');
 
-		this.addRibbonIcon('sync', 'Sync Granola Notes', () => {
-			this.syncNotes();
-		});
+		// Add ribbon icon if enabled
+		this.updateRibbonIcon();
 
 		this.addCommand({
 			id: 'sync-granola-notes',
@@ -59,8 +60,24 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 		try {
 			await this.saveData(this.settings);
 			this.setupAutoSync();
+			this.updateRibbonIcon();
 		} catch (error) {
 			console.error('Failed to save settings:', error);
+		}
+	}
+
+	updateRibbonIcon() {
+		// Remove existing ribbon icon if it exists
+		if (this.ribbonIconEl) {
+			this.ribbonIconEl.remove();
+			this.ribbonIconEl = null;
+		}
+
+		// Add ribbon icon if enabled in settings
+		if (this.settings.showRibbonIcon) {
+			this.ribbonIconEl = this.addRibbonIcon('sync', 'Sync Granola Notes', () => {
+				this.syncNotes();
+			});
 		}
 	}
 
@@ -544,6 +561,17 @@ class GranolaSyncSettingTab extends obsidian.PluginSettingTab {
 		const containerEl = this.containerEl;
 		containerEl.empty();
 		containerEl.createEl('h2', { text: 'Granola Sync Settings' });
+
+		new obsidian.Setting(containerEl)
+			.setName('Show Ribbon Icon')
+			.setDesc('Display the sync button in the left sidebar ribbon')
+			.addToggle(toggle => {
+				toggle.setValue(this.plugin.settings.showRibbonIcon);
+				toggle.onChange(async (value) => {
+					this.plugin.settings.showRibbonIcon = value;
+					await this.plugin.saveSettings();
+				});
+			});
 
 		new obsidian.Setting(containerEl)
 			.setName('Note Prefix')
