@@ -1,17 +1,19 @@
 # Granola Sync for Obsidian
 
-An Obsidian plugin that automatically syncs your [Granola AI](https://granola.ai) meeting notes to your Obsidian vault with full customization options.
+An Obsidian plugin that automatically syncs your [Granola AI](https://granola.ai) meeting notes to your Obsidian vault with full customization options and real-time status updates.
 
-![Granola Sync Plugin](https://img.shields.io/badge/Obsidian-Plugin-purple) ![Version](https://img.shields.io/badge/version-1.0.0-blue) ![License](https://img.shields.io/badge/license-MIT-green)
+![Granola Sync Plugin](https://img.shields.io/badge/Obsidian-Plugin-purple) ![Version](https://img.shields.io/badge/version-1.0.1-blue) ![License](https://img.shields.io/badge/license-MIT-green)
 
 ## 🚀 Features
 
 - **🔄 Automatic Sync**: Configurable auto-sync from every minute to daily, or manual-only
+- **📊 Status Bar Integration**: Real-time sync status in the bottom right corner (no more popup spam!)
 - **📅 Custom Date Formats**: Support for multiple date formats (YYYY-MM-DD, DD-MM-YYYY, etc.)
 - **📝 Flexible Filename Templates**: Customize how notes are named with variables like date, time, and title
 - **📁 Custom Directory**: Choose where in your vault to sync notes
 - **🏷️ Note Prefixes**: Add custom prefixes to all synced notes
 - **🔧 Custom Auth Path**: Override the default Granola credentials location
+- **🗓️ Daily Note Integration**: Automatically add today's meetings to your Daily Note with times and links
 - **✨ Rich Metadata**: Includes frontmatter with creation/update dates and Granola IDs
 - **📋 Content Conversion**: Converts ProseMirror content to clean Markdown
 - **🔄 Update Handling**: Intelligently updates existing notes instead of creating duplicates
@@ -88,9 +90,25 @@ Choose how often to automatically sync:
 - Click the sync icon in the ribbon (left sidebar)
 - Use Command Palette: "Sync Granola Notes"
 - Click "Sync Now" in plugin settings
+- **Watch the status bar** (bottom right) for real-time progress
 
 ### Auto-Sync
-Set your preferred frequency in settings and the plugin will sync automatically in the background.
+Set your preferred frequency in settings and the plugin will sync automatically in the background. Status updates appear in the status bar.
+
+### Status Bar Indicators
+- **"Granola Sync: Idle"** - Ready to sync
+- **"Granola Sync: Syncing..."** - Currently syncing (with animation)
+- **"Granola Sync: X notes synced"** - Success (shows for 3 seconds)
+- **"Granola Sync: Error - [details]"** - Error occurred (shows for 5 seconds)
+
+### Daily Note Integration
+When enabled, today's Granola meetings automatically appear in your Daily Note:
+
+```markdown
+## Granola Meetings
+- 09:30 [[Granola/2025-06-09_Team_Standup|Team Standup]]
+- 14:00 [[Granola/2025-06-09_Client_Review|Client Review Meeting]]
+```
 
 ### Preview Your Settings
 Use the preview buttons in settings to see how your filename template and date format will look before syncing.

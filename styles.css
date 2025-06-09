@@ -24,19 +24,36 @@
     background-color: var(--interactive-accent-hover);
 }
 
+/* Status Bar Styles */
 .granola-sync-status {
-    padding: 10px;
-    border-radius: 4px;
-    margin-top: 10px;
     font-size: 12px;
+    padding: 2px 6px;
+    border-radius: 3px;
+    transition: all 0.3s ease;
 }
 
-.granola-sync-status.success {
-    background-color: var(--background-modifier-success);
+.granola-sync-status.idle {
+    color: var(--text-muted);
+}
+
+.granola-sync-status.syncing {
+    color: var(--text-accent);
+    animation: pulse 1.5s ease-in-out infinite alternate;
+}
+
+.granola-sync-status.complete {
     color: var(--text-success);
 }
 
 .granola-sync-status.error {
-    background-color: var(--background-modifier-error);
     color: var(--text-error);
+}
+
+@keyframes pulse {
+    from {
+        opacity: 0.6;
+    }
+    to {
+        opacity: 1;
+    }
 }

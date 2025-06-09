@@ -1,4 +1,4 @@
-const { Plugin, PluginSettingTab, Setting, Notice, TFolder, requestUrl } = require('obsidian');
+const obsidian = require('obsidian');
 const path = require('path');
 const os = require('os');
 const fs = require('fs');
@@ -9,15 +9,17 @@ const DEFAULT_SETTINGS = {
 	authKeyPath: 'Library/Application Support/Granola/supabase.json',
 	filenameTemplate: '{title}',
 	dateFormat: 'YYYY-MM-DD',
-	autoSyncFrequency: 300000 // 5 minutes in milliseconds
+	autoSyncFrequency: 300000,
+	enableDailyNoteIntegration: false,
+	dailyNoteSectionName: '## Granola Meetings'
 };
 
-module.exports = class GranolaSyncPlugin extends Plugin {
+class GranolaSyncPlugin extends obsidian.Plugin {
 	async onload() {
 		this.autoSyncInterval = null;
 		this.settings = DEFAULT_SETTINGS;
+		this.statusBarItem = null;
 		
-		// Load settings safely
 		try {
 			const data = await this.loadData();
 			if (data) {
@@ -27,12 +29,13 @@ module.exports = class GranolaSyncPlugin extends Plugin {
 			console.log('Could not load settings, using defaults');
 		}
 
-		// Add ribbon icon
+		this.statusBarItem = this.addStatusBarItem();
+		this.updateStatusBar('Idle');
+
 		this.addRibbonIcon('sync', 'Sync Granola Notes', () => {
 			this.syncNotes();
 		});
 
-		// Add command
 		this.addCommand({
 			id: 'sync-granola-notes',
 			name: 'Sync Granola Notes',
@@ -41,10 +44,8 @@ module.exports = class GranolaSyncPlugin extends Plugin {
 			}
 		});
 
-		// Add settings tab
 		this.addSettingTab(new GranolaSyncSettingTab(this.app, this));
 
-		// Setup auto-sync after a short delay to ensure everything is ready
 		setTimeout(() => {
 			this.setupAutoSync();
 		}, 1000);
@@ -57,24 +58,45 @@ module.exports = class GranolaSyncPlugin extends Plugin {
 	async saveSettings() {
 		try {
 			await this.saveData(this.settings);
-			// Restart auto-sync with new frequency
 			this.setupAutoSync();
 		} catch (error) {
 			console.error('Failed to save settings:', error);
 		}
 	}
 
+	updateStatusBar(status, count) {
+		if (!this.statusBarItem) return;
+		
+		let text = 'Granola Sync: ';
+		
+		if (status === 'Idle') {
+			text += 'Idle';
+		} else if (status === 'Syncing') {
+			text += 'Syncing...';
+		} else if (status === 'Complete') {
+			text += count + ' notes synced';
+			setTimeout(() => {
+				this.updateStatusBar('Idle');
+			}, 3000);
+		} else if (status === 'Error') {
+			text += 'Error - ' + (count || 'sync failed');
+			setTimeout(() => {
+				this.updateStatusBar('Idle');
+			}, 5000);
+		}
+		
+		this.statusBarItem.setText(text);
+	}
+
 	setupAutoSync() {
-		// Clear existing interval
 		this.clearAutoSync();
 		
-		// Set up new interval if enabled
 		if (this.settings.autoSyncFrequency > 0) {
 			this.autoSyncInterval = window.setInterval(() => {
 				console.log('Auto-syncing Granola notes...');
 				this.syncNotes();
 			}, this.settings.autoSyncFrequency);
-			console.log(`Auto-sync enabled: every ${this.getFrequencyLabel(this.settings.autoSyncFrequency)}`);
+			console.log('Auto-sync enabled: every ' + this.getFrequencyLabel(this.settings.autoSyncFrequency));
 		} else {
 			console.log('Auto-sync disabled');
 		}
@@ -92,48 +114,70 @@ module.exports = class GranolaSyncPlugin extends Plugin {
 		const hours = frequency / (1000 * 60 * 60);
 		
 		if (frequency === 0) return 'Disabled';
-		if (frequency < 60000) return `${frequency / 1000} seconds`;
-		if (minutes < 60) return `${minutes} minutes`;
-		return `${hours} hours`;
+		if (frequency < 60000) return (frequency / 1000) + ' seconds';
+		if (minutes < 60) return minutes + ' minutes';
+		return hours + ' hours';
 	}
 
 	async syncNotes() {
 		try {
-			new Notice('Starting Granola sync...');
+			this.updateStatusBar('Syncing');
 			
-			// Ensure sync directory exists
 			await this.ensureDirectoryExists();
 
-			// Load credentials
 			const token = await this.loadCredentials();
 			if (!token) {
-				new Notice('Failed to load Granola credentials');
+				this.updateStatusBar('Error', 'credentials failed');
 				return;
 			}
 
-			// Fetch documents from Granola API
 			const documents = await this.fetchGranolaDocuments(token);
 			if (!documents) {
-				new Notice('Failed to fetch documents from Granola');
+				this.updateStatusBar('Error', 'fetch failed');
 				return;
 			}
 
-			// Process and save documents
 			let syncedCount = 0;
-			for (const doc of documents) {
+			const todaysNotes = [];
+			const today = new Date().toDateString();
+
+			for (let i = 0; i < documents.length; i++) {
+				const doc = documents[i];
 				try {
 					const success = await this.processDocument(doc);
-					if (success) syncedCount++;
+					if (success) {
+						syncedCount++;
+						
+						if (this.settings.enableDailyNoteIntegration && doc.created_at) {
+							const noteDate = new Date(doc.created_at).toDateString();
+							if (noteDate === today) {
+								const noteData = {};
+								noteData.title = doc.title || 'Untitled Granola Note';
+								noteData.filename = this.generateFilename(doc) + '.md';
+								
+								const createdDate = new Date(doc.created_at);
+								const hours = String(createdDate.getHours()).padStart(2, '0');
+								const minutes = String(createdDate.getMinutes()).padStart(2, '0');
+								noteData.time = hours + ':' + minutes;
+								
+								todaysNotes.push(noteData);
+							}
+						}
+					}
 				} catch (error) {
-					console.error(`Error processing document ${doc.title}:`, error);
+					console.error('Error processing document ' + doc.title + ':', error);
 				}
 			}
 
-			new Notice(`Granola sync completed: ${syncedCount} notes synced`);
+			if (this.settings.enableDailyNoteIntegration && todaysNotes.length > 0) {
+				await this.updateDailyNote(todaysNotes);
+			}
+
+			this.updateStatusBar('Complete', syncedCount);
 			
 		} catch (error) {
 			console.error('Granola sync failed:', error);
-			new Notice('Granola sync failed: ' + error.message);
+			this.updateStatusBar('Error', 'sync failed');
 		}
 	}
 
@@ -143,7 +187,6 @@ module.exports = class GranolaSyncPlugin extends Plugin {
 			const credentialsFile = fs.readFileSync(authPath, 'utf8');
 			const data = JSON.parse(credentialsFile);
 			
-			// Parse the cognito_tokens string into an object
 			const cognitoTokens = JSON.parse(data.cognito_tokens);
 			const accessToken = cognitoTokens.access_token;
 			
@@ -162,11 +205,11 @@ module.exports = class GranolaSyncPlugin extends Plugin {
 
 	async fetchGranolaDocuments(token) {
 		try {
-			const response = await requestUrl({
+			const response = await obsidian.requestUrl({
 				url: 'https://api.granola.ai/v2/get-documents',
 				method: 'POST',
 				headers: {
-					'Authorization': `Bearer ${token}`,
+					'Authorization': 'Bearer ' + token,
 					'Content-Type': 'application/json',
 					'Accept': '*/*',
 					'User-Agent': 'Granola/5.354.0',
@@ -186,7 +229,7 @@ module.exports = class GranolaSyncPlugin extends Plugin {
 				return null;
 			}
 
-			console.log(`Successfully fetched ${apiResponse.docs.length} documents from Granola`);
+			console.log('Successfully fetched ' + apiResponse.docs.length + ' documents from Granola');
 			return apiResponse.docs;
 		} catch (error) {
 			console.error('Error fetching documents:', error);
@@ -208,30 +251,27 @@ module.exports = class GranolaSyncPlugin extends Plugin {
 			const nodeContent = node.content || [];
 			const text = node.text || '';
 
-			switch (nodeType) {
-				case 'heading':
-					const level = node.attrs?.level || 1;
-					const headingText = nodeContent.map(processNode).join('');
-					return '#'.repeat(level) + ' ' + headingText + '\n\n';
-
-				case 'paragraph':
-					const paraText = nodeContent.map(processNode).join('');
-					return paraText + '\n\n';
-
-				case 'bulletList':
-					const items = nodeContent
-						.filter((item) => item.type === 'listItem')
-						.map((item) => {
-							const itemContent = (item.content || []).map(processNode).join('').trim();
-							return '- ' + itemContent;
-						});
-					return items.join('\n') + '\n\n';
-
-				case 'text':
-					return text;
-
-				default:
-					return nodeContent.map(processNode).join('');
+			if (nodeType === 'heading') {
+				const level = node.attrs && node.attrs.level ? node.attrs.level : 1;
+				const headingText = nodeContent.map(processNode).join('');
+				return '#'.repeat(level) + ' ' + headingText + '\n\n';
+			} else if (nodeType === 'paragraph') {
+				const paraText = nodeContent.map(processNode).join('');
+				return paraText + '\n\n';
+			} else if (nodeType === 'bulletList') {
+				const items = [];
+				for (let i = 0; i < nodeContent.length; i++) {
+					const item = nodeContent[i];
+					if (item.type === 'listItem') {
+						const itemContent = (item.content || []).map(processNode).join('').trim();
+						items.push('- ' + itemContent);
+					}
+				}
+				return items.join('\n') + '\n\n';
+			} else if (nodeType === 'text') {
+				return text;
+			} else {
+				return nodeContent.map(processNode).join('');
 			}
 		};
 
@@ -263,7 +303,6 @@ module.exports = class GranolaSyncPlugin extends Plugin {
 		const title = doc.title || 'Untitled Granola Note';
 		const docId = doc.id || 'unknown_id';
 		
-		// Parse dates using custom format
 		let createdDate = '';
 		let updatedDate = '';
 		let createdTime = '';
@@ -283,7 +322,6 @@ module.exports = class GranolaSyncPlugin extends Plugin {
 			updatedDateTime = this.formatDate(doc.updated_at, this.settings.dateFormat + '_HH-mm-ss');
 		}
 
-		// Build filename from template
 		let filename = this.settings.filenameTemplate
 			.replace(/{title}/g, title)
 			.replace(/{id}/g, docId)
@@ -294,12 +332,10 @@ module.exports = class GranolaSyncPlugin extends Plugin {
 			.replace(/{created_datetime}/g, createdDateTime)
 			.replace(/{updated_datetime}/g, updatedDateTime);
 
-		// Add prefix if specified
 		if (this.settings.notePrefix) {
 			filename = this.settings.notePrefix + filename;
 		}
 
-		// Sanitize the final filename
 		const invalidChars = /[<>:"/\\|?*]/g;
 		filename = filename.replace(invalidChars, '');
 		filename = filename.replace(/\s+/g, '_');
@@ -312,61 +348,55 @@ module.exports = class GranolaSyncPlugin extends Plugin {
 			const title = doc.title || 'Untitled Granola Note';
 			const docId = doc.id || 'unknown_id';
 			
-			console.log(`Processing document: ${title} (ID: ${docId})`);
+			console.log('Processing document: ' + title + ' (ID: ' + docId + ')');
 
-			// Find content to parse
 			let contentToParse = null;
-			if (doc.last_viewed_panel?.content?.type === 'doc') {
+			if (doc.last_viewed_panel && doc.last_viewed_panel.content && doc.last_viewed_panel.content.type === 'doc') {
 				contentToParse = doc.last_viewed_panel.content;
 			}
 
 			if (!contentToParse) {
-				console.log(`Skipping document '${title}' - no suitable content found`);
+				console.log('Skipping document ' + title + ' - no suitable content found');
 				return false;
 			}
 
-			// Convert to markdown
 			const markdownContent = this.convertProseMirrorToMarkdown(contentToParse);
 
-			// Create frontmatter
 			let frontmatter = '---\n';
-			frontmatter += `granola_id: ${docId}\n`;
+			frontmatter += 'granola_id: ' + docId + '\n';
 			const escapedTitle = title.replace(/"/g, '\\"');
-			frontmatter += `title: "${escapedTitle}"\n`;
+			frontmatter += 'title: "' + escapedTitle + '"\n';
 			
 			if (doc.created_at) {
-				frontmatter += `created_at: ${doc.created_at}\n`;
+				frontmatter += 'created_at: ' + doc.created_at + '\n';
 			}
 			if (doc.updated_at) {
-				frontmatter += `updated_at: ${doc.updated_at}\n`;
+				frontmatter += 'updated_at: ' + doc.updated_at + '\n';
 			}
 			frontmatter += '---\n\n';
 
 			const finalMarkdown = frontmatter + markdownContent;
 
-			// Save file
 			const filename = this.generateFilename(doc) + '.md';
 			const filepath = path.join(this.settings.syncDirectory, filename);
 
 			await this.app.vault.create(filepath, finalMarkdown);
-			console.log(`Successfully saved: ${filepath}`);
+			console.log('Successfully saved: ' + filepath);
 			return true;
 
 		} catch (error) {
-			// If file already exists, update it
 			if (error.message.includes('already exists')) {
 				try {
 					const filename = this.generateFilename(doc) + '.md';
 					const filepath = path.join(this.settings.syncDirectory, filename);
 					
-					// Get existing file and update it
 					const existingFile = this.app.vault.getAbstractFileByPath(filepath);
 					if (existingFile) {
 						const title = doc.title || 'Untitled Granola Note';
 						const docId = doc.id || 'unknown_id';
 						
 						let contentToParse = null;
-						if (doc.last_viewed_panel?.content?.type === 'doc') {
+						if (doc.last_viewed_panel && doc.last_viewed_panel.content && doc.last_viewed_panel.content.type === 'doc') {
 							contentToParse = doc.last_viewed_panel.content;
 						}
 
@@ -374,29 +404,29 @@ module.exports = class GranolaSyncPlugin extends Plugin {
 							const markdownContent = this.convertProseMirrorToMarkdown(contentToParse);
 
 							let frontmatter = '---\n';
-							frontmatter += `granola_id: ${docId}\n`;
+							frontmatter += 'granola_id: ' + docId + '\n';
 							const escapedTitle = title.replace(/"/g, '\\"');
-							frontmatter += `title: "${escapedTitle}"\n`;
+							frontmatter += 'title: "' + escapedTitle + '"\n';
 							
 							if (doc.created_at) {
-								frontmatter += `created_at: ${doc.created_at}\n`;
+								frontmatter += 'created_at: ' + doc.created_at + '\n';
 							}
 							if (doc.updated_at) {
-								frontmatter += `updated_at: ${doc.updated_at}\n`;
+								frontmatter += 'updated_at: ' + doc.updated_at + '\n';
 							}
 							frontmatter += '---\n\n';
 
 							const finalMarkdown = frontmatter + markdownContent;
 							await this.app.vault.modify(existingFile, finalMarkdown);
-							console.log(`Successfully updated: ${filepath}`);
+							console.log('Successfully updated: ' + filepath);
 							return true;
 						}
 					}
 				} catch (updateError) {
-					console.error(`Error updating file:`, updateError);
+					console.error('Error updating file:', updateError);
 				}
 			}
-			console.error(`Error processing document:`, error);
+			console.error('Error processing document:', error);
 			return false;
 		}
 	}
@@ -404,127 +434,176 @@ module.exports = class GranolaSyncPlugin extends Plugin {
 	async ensureDirectoryExists() {
 		try {
 			const folder = this.app.vault.getAbstractFileByPath(this.settings.syncDirectory);
-			if (!folder || !(folder instanceof TFolder)) {
+			if (!folder || !(folder instanceof obsidian.TFolder)) {
 				await this.app.vault.createFolder(this.settings.syncDirectory);
 			}
 		} catch (error) {
 			console.error('Error creating directory:', error);
 		}
 	}
-};
 
-class GranolaSyncSettingTab extends PluginSettingTab {
+	async updateDailyNote(todaysNotes) {
+		try {
+			const dailyNote = await this.getDailyNote();
+			if (!dailyNote) {
+				console.log('No daily note found, skipping daily note integration');
+				return;
+			}
+
+			let content = await this.app.vault.read(dailyNote);
+			
+			const sectionHeader = this.settings.dailyNoteSectionName;
+			const notesList = todaysNotes
+				.sort((a, b) => a.time.localeCompare(b.time))
+				.map(note => '- ' + note.time + ' [[' + this.settings.syncDirectory + '/' + note.filename + '|' + note.title + ']]')
+				.join('\n');
+			
+			const granolaSection = sectionHeader + '\n' + notesList;
+
+			const sectionRegex = new RegExp('^' + this.escapeRegex(sectionHeader) + '$', 'm');
+			const nextSectionRegex = /^## /m;
+			
+			if (sectionRegex.test(content)) {
+				const lines = content.split('\n');
+				const sectionIndex = lines.findIndex(line => line.trim() === sectionHeader.trim());
+				
+				if (sectionIndex !== -1) {
+					let endIndex = lines.length;
+					for (let i = sectionIndex + 1; i < lines.length; i++) {
+						if (lines[i].match(nextSectionRegex)) {
+							endIndex = i;
+							break;
+						}
+					}
+					
+					const beforeSection = lines.slice(0, sectionIndex).join('\n');
+					const afterSection = lines.slice(endIndex).join('\n');
+					content = beforeSection + '\n' + granolaSection + '\n' + afterSection;
+				}
+			} else {
+				content += '\n\n' + granolaSection;
+			}
+
+			await this.app.vault.modify(dailyNote, content);
+			console.log('Updated daily note with Granola meetings');
+			
+		} catch (error) {
+			console.error('Error updating daily note:', error);
+		}
+	}
+
+	async getDailyNote() {
+		try {
+			const dailyNotesPlugin = this.app.internalPlugins.plugins['daily-notes'];
+			if (!dailyNotesPlugin || !dailyNotesPlugin.enabled) {
+				console.log('Daily notes plugin not enabled');
+				return null;
+			}
+
+			const today = new Date();
+			const dateFormat = dailyNotesPlugin.instance.options && dailyNotesPlugin.instance.options.format ? dailyNotesPlugin.instance.options.format : 'YYYY-MM-DD';
+			const todayString = this.formatDate(today.toISOString(), dateFormat);
+			
+			const dailyNotesFolder = dailyNotesPlugin.instance.options && dailyNotesPlugin.instance.options.folder ? dailyNotesPlugin.instance.options.folder : '';
+			
+			const dailyNotePath = dailyNotesFolder ? 
+				dailyNotesFolder + '/' + todayString + '.md' : 
+				todayString + '.md';
+
+			let dailyNote = this.app.vault.getAbstractFileByPath(dailyNotePath);
+			
+			if (!dailyNote) {
+				const folder = dailyNotesFolder ? 
+					this.app.vault.getAbstractFileByPath(dailyNotesFolder) : 
+					this.app.vault.getRoot();
+				
+				if (folder) {
+					dailyNote = await this.app.vault.create(dailyNotePath, '');
+				}
+			}
+
+			return dailyNote;
+		} catch (error) {
+			console.error('Error getting daily note:', error);
+			return null;
+		}
+	}
+
+	escapeRegex(string) {
+		return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+	}
+}
+
+class GranolaSyncSettingTab extends obsidian.PluginSettingTab {
 	constructor(app, plugin) {
 		super(app, plugin);
 		this.plugin = plugin;
 	}
 
 	display() {
-		const { containerEl } = this;
-
+		const containerEl = this.containerEl;
 		containerEl.empty();
-
 		containerEl.createEl('h2', { text: 'Granola Sync Settings' });
 
-		new Setting(containerEl)
-			.setName('Sync Directory')
-			.setDesc('Directory within your vault where Granola notes will be synced')
-			.addText(text => text
-				.setPlaceholder('Granola')
-				.setValue(this.plugin.settings.syncDirectory)
-				.onChange(async (value) => {
-					this.plugin.settings.syncDirectory = value;
-					await this.plugin.saveSettings();
-				}));
-
-		new Setting(containerEl)
+		new obsidian.Setting(containerEl)
 			.setName('Note Prefix')
 			.setDesc('Optional prefix to add to all synced note titles')
-			.addText(text => text
-				.setPlaceholder('granola-')
-				.setValue(this.plugin.settings.notePrefix)
-				.onChange(async (value) => {
+			.addText(text => {
+				text.setPlaceholder('granola-');
+				text.setValue(this.plugin.settings.notePrefix);
+				text.onChange(async (value) => {
 					this.plugin.settings.notePrefix = value;
 					await this.plugin.saveSettings();
-				}));
+				});
+			});
 
-		new Setting(containerEl)
+		new obsidian.Setting(containerEl)
 			.setName('Auth Key Path')
 			.setDesc('Path to your Granola authentication key file')
-			.addText(text => text
-				.setPlaceholder('Library/Application Support/Granola/supabase.json')
-				.setValue(this.plugin.settings.authKeyPath)
-				.onChange(async (value) => {
+			.addText(text => {
+				text.setPlaceholder('Library/Application Support/Granola/supabase.json');
+				text.setValue(this.plugin.settings.authKeyPath);
+				text.onChange(async (value) => {
 					this.plugin.settings.authKeyPath = value;
 					await this.plugin.saveSettings();
-				}));
+				});
+			});
 
-		new Setting(containerEl)
+		new obsidian.Setting(containerEl)
 			.setName('Date Format')
-			.setDesc('Format for dates in filenames. Use YYYY (year), MM (month), DD (day). Examples: YYYY-MM-DD, DD-MM-YYYY, MM-DD-YY')
-			.addText(text => text
-				.setPlaceholder('YYYY-MM-DD')
-				.setValue(this.plugin.settings.dateFormat)
-				.onChange(async (value) => {
+			.setDesc('Format for dates in filenames. Use YYYY (year), MM (month), DD (day)')
+			.addText(text => {
+				text.setPlaceholder('YYYY-MM-DD');
+				text.setValue(this.plugin.settings.dateFormat);
+				text.onChange(async (value) => {
 					this.plugin.settings.dateFormat = value;
 					await this.plugin.saveSettings();
-				}));
+				});
+			});
 
-		new Setting(containerEl)
+		new obsidian.Setting(containerEl)
 			.setName('Filename Template')
-			.setDesc('Template for generating filenames. Available variables: {title}, {id}, {created_date}, {updated_date}, {created_time}, {updated_time}, {created_datetime}, {updated_datetime}')
-			.addText(text => text
-				.setPlaceholder('{created_date}_{title}')
-				.setValue(this.plugin.settings.filenameTemplate)
-				.onChange(async (value) => {
+			.setDesc('Template for filenames. Use {title}, {created_date}, {updated_date}, etc.')
+			.addText(text => {
+				text.setPlaceholder('{created_date}_{title}');
+				text.setValue(this.plugin.settings.filenameTemplate);
+				text.onChange(async (value) => {
 					this.plugin.settings.filenameTemplate = value;
 					await this.plugin.saveSettings();
-				}));
+				});
+			});
 
-		new Setting(containerEl)
-			.setName('Preview Date Format')
-			.setDesc('See how your date format will look')
-			.addButton(button => button
-				.setButtonText('Preview Date')
-				.onClick(() => {
-					const sampleDate = new Date().toISOString();
-					const formattedDate = this.plugin.formatDate(sampleDate, this.plugin.settings.dateFormat);
-					new Notice(`Date preview: ${formattedDate}`, 4000);
-				}));
-
-		new Setting(containerEl)
-			.setName('Preview Filename')
-			.setDesc('See how your filename template will look')
-			.addButton(button => button
-				.setButtonText('Preview')
-				.onClick(() => {
-					// Create a sample document for preview
-					const sampleDoc = {
-						title: 'Team Standup Meeting',
-						id: 'abc123',
-						created_at: new Date().toISOString(),
-						updated_at: new Date().toISOString()
-					};
-					
-					const previewFilename = this.plugin.generateFilename(sampleDoc) + '.md';
-					new Notice(`Preview: ${previewFilename}`, 5000);
-				}));
-
-		new Setting(containerEl)
+		new obsidian.Setting(containerEl)
 			.setName('Auto-Sync Frequency')
-			.setDesc('How often to automatically sync notes. Set to "Never" to disable auto-sync.')
+			.setDesc('How often to automatically sync notes')
 			.addDropdown(dropdown => {
 				dropdown.addOption('0', 'Never');
 				dropdown.addOption('60000', 'Every 1 minute');
-				dropdown.addOption('120000', 'Every 2 minutes');
 				dropdown.addOption('300000', 'Every 5 minutes');
 				dropdown.addOption('600000', 'Every 10 minutes');
-				dropdown.addOption('900000', 'Every 15 minutes');
 				dropdown.addOption('1800000', 'Every 30 minutes');
 				dropdown.addOption('3600000', 'Every 1 hour');
-				dropdown.addOption('7200000', 'Every 2 hours');
 				dropdown.addOption('21600000', 'Every 6 hours');
-				dropdown.addOption('43200000', 'Every 12 hours');
 				dropdown.addOption('86400000', 'Every 24 hours');
 				
 				dropdown.setValue(String(this.plugin.settings.autoSyncFrequency));
@@ -532,20 +611,45 @@ class GranolaSyncSettingTab extends PluginSettingTab {
 					this.plugin.settings.autoSyncFrequency = parseInt(value);
 					await this.plugin.saveSettings();
 					
-					// Show confirmation
 					const label = this.plugin.getFrequencyLabel(parseInt(value));
-					new Notice(`Auto-sync frequency updated: ${label}`);
+					new obsidian.Notice('Auto-sync updated: ' + label);
 				});
 			});
 
-		new Setting(containerEl)
+		new obsidian.Setting(containerEl)
+			.setName('Daily Note Integration')
+			.setDesc('Add todays meetings to your Daily Note')
+			.addToggle(toggle => {
+				toggle.setValue(this.plugin.settings.enableDailyNoteIntegration);
+				toggle.onChange(async (value) => {
+					this.plugin.settings.enableDailyNoteIntegration = value;
+					await this.plugin.saveSettings();
+				});
+			});
+
+		new obsidian.Setting(containerEl)
+			.setName('Sync Directory')
+			.setDesc('Directory within your vault where Granola notes will be synced')
+			.addText(text => {
+				text.setPlaceholder('Granola');
+				text.setValue(this.plugin.settings.syncDirectory);
+				text.onChange(async (value) => {
+					this.plugin.settings.syncDirectory = value;
+					await this.plugin.saveSettings();
+				});
+			});
+
+		new obsidian.Setting(containerEl)
 			.setName('Manual Sync')
 			.setDesc('Click to manually sync your Granola notes')
-			.addButton(button => button
-				.setButtonText('Sync Now')
-				.setCta()
-				.onClick(async () => {
+			.addButton(button => {
+				button.setButtonText('Sync Now');
+				button.setCta();
+				button.onClick(async () => {
 					await this.plugin.syncNotes();
-				}));
+				});
+			});
 	}
 }
+
+module.exports = GranolaSyncPlugin;
