@@ -22,26 +22,51 @@ jobs:
       
       - name: Update README version badge
         run: |
-          # Update version badge in README.md
-          sed -i 's/version-[0-9]\+\.[0-9]\+\.[0-9]\+-blue/version-${{ steps.version.outputs.VERSION }}-blue/g' README.md
+          # Find the correct README file (case insensitive)
+          README_FILE=""
+          if [ -f "README.md" ]; then
+            README_FILE="README.md"
+          elif [ -f "readme.md" ]; then
+            README_FILE="readme.md"
+          elif [ -f "Readme.md" ]; then
+            README_FILE="Readme.md"
+          else
+            echo "No README file found"
+            exit 0
+          fi
+          
+          echo "Found README file: $README_FILE"
+          
+          # Update version badge in the README file
+          sed -i 's/version-[0-9]\+\.[0-9]\+\.[0-9]\+-blue/version-${{ steps.version.outputs.VERSION }}-blue/g' "$README_FILE"
           
           # Verify the change was made
-          echo "Updated README.md version badge:"
-          grep "version-.*-blue" README.md || echo "No version badge found to update"
+          echo "Updated $README_FILE version badge:"
+          grep "version-.*-blue" "$README_FILE" || echo "No version badge found to update"
       
       - name: Commit README changes
         run: |
           git config --local user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
           
+          # Find the README file again
+          README_FILE=""
+          if [ -f "README.md" ]; then
+            README_FILE="README.md"
+          elif [ -f "readme.md" ]; then
+            README_FILE="readme.md"
+          elif [ -f "Readme.md" ]; then
+            README_FILE="Readme.md"
+          fi
+          
           # Check if README was actually changed
-          if git diff --quiet README.md; then
-            echo "No changes to README.md"
+          if [ -z "$README_FILE" ] || git diff --quiet "$README_FILE"; then
+            echo "No changes to README file"
           else
-            git add README.md
+            git add "$README_FILE"
             git commit -m "Update README version badge to v${{ steps.version.outputs.VERSION }}"
             git push origin HEAD:main
-            echo "README.md updated and pushed ✅"
+            echo "$README_FILE updated and pushed ✅"
           fi
       
       - name: Verify plugin files exist
