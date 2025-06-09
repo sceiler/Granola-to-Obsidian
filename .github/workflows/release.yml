@@ -5,6 +5,9 @@ on:
     tags:
       - 'v*'
 
+permissions:
+  contents: write
+  
 jobs:
   release:
     runs-on: ubuntu-latest
@@ -44,40 +47,27 @@ jobs:
           echo "Plugin zip created: ${{ steps.version.outputs.VERSION }}.zip ✅"
           
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v1
-        with:
-          name: "Granola Sync v${{ steps.version.outputs.VERSION }}"
-          body: |
-            ## 🚀 Granola Sync v${{ steps.version.outputs.VERSION }}
+        run: |
+          gh release create v${{ steps.version.outputs.VERSION }} \
+            --title "Granola Sync v${{ steps.version.outputs.VERSION }}" \
+            --notes "## 🚀 Granola Sync v${{ steps.version.outputs.VERSION }}
             
             ### 📦 Installation Options
             
             **Option 1: Download ZIP (Recommended)**
-            1. Download `${{ steps.version.outputs.VERSION }}.zip`
-            2. Extract the `granola-sync` folder to `.obsidian/plugins/` in your vault
+            1. Download \`${{ steps.version.outputs.VERSION }}.zip\`
+            2. Extract the \`granola-sync\` folder to \`.obsidian/plugins/\` in your vault
             3. Enable the plugin in Obsidian Settings → Community Plugins
             
             **Option 2: Manual Installation**  
-            1. Download individual files: `main.js`, `manifest.json`, `styles.css`, `versions.json`
-            2. Create folder `.obsidian/plugins/granola-sync/` in your vault
+            1. Download individual files: \`main.js\`, \`manifest.json\`, \`styles.css\`, \`versions.json\`
+            2. Create folder \`.obsidian/plugins/granola-sync/\` in your vault
             3. Place all files in the folder
             4. Enable the plugin in Obsidian Settings → Community Plugins
             
-            ### 🔄 Updating from Previous Version
-            1. Download the new ZIP file
-            2. Replace the existing `granola-sync` folder in `.obsidian/plugins/`
-            3. Restart Obsidian or reload the plugin
-            
             ---
             
-            For detailed changelog and features, see the [README](https://github.com/dannymcc/Granola-to-Obsidian/blob/main/README.md).
-          files: |
-            main.js
-            manifest.json
-            styles.css
-            versions.json
-            ${{ steps.version.outputs.VERSION }}.zip
-          draft: false
-          prerelease: false
+            For detailed changelog and features, see the [README](https://github.com/dannymcc/Granola-to-Obsidian/blob/main/README.md)." \
+            main.js manifest.json styles.css versions.json ${{ steps.version.outputs.VERSION }}.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
