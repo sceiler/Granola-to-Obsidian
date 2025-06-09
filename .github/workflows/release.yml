@@ -20,6 +20,30 @@ jobs:
         id: version
         run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
       
+      - name: Update README version badge
+        run: |
+          # Update version badge in README.md
+          sed -i 's/version-[0-9]\+\.[0-9]\+\.[0-9]\+-blue/version-${{ steps.version.outputs.VERSION }}-blue/g' README.md
+          
+          # Verify the change was made
+          echo "Updated README.md version badge:"
+          grep "version-.*-blue" README.md || echo "No version badge found to update"
+      
+      - name: Commit README changes
+        run: |
+          git config --local user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          
+          # Check if README was actually changed
+          if git diff --quiet README.md; then
+            echo "No changes to README.md"
+          else
+            git add README.md
+            git commit -m "Update README version badge to v${{ steps.version.outputs.VERSION }}"
+            git push origin HEAD:main
+            echo "README.md updated and pushed ✅"
+          fi
+      
       - name: Verify plugin files exist
         run: |
           if [[ ! -f "main.js" ]]; then echo "main.js not found"; exit 1; fi
