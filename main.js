@@ -3,20 +3,10 @@ const path = require('path');
 const os = require('os');
 const fs = require('fs');
 
-function getDefaultAuthPath() {
-	const platform = os.platform();
-	if (platform === 'win32') {
-		return 'AppData/Roaming/Granola/supabase.json';
-	} else {
-		// Default to macOS path for macOS, Linux, and other platforms
-		return 'Library/Application Support/Granola/supabase.json';
-	}
-}
-
 const DEFAULT_SETTINGS = {
 	syncDirectory: 'Granola',
 	notePrefix: '',
-	authKeyPath: getDefaultAuthPath(),
+	authKeyPath: 'Library/Application Support/Granola/supabase.json',
 	filenameTemplate: '{title}',
 	dateFormat: 'YYYY-MM-DD',
 	autoSyncFrequency: 300000,
@@ -443,7 +433,8 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 							}
 							frontmatter += '---\n\n';
 
-							const finalMarkdown = frontmatter + markdownContent;
+							// Add the title as the main heading, then the content
+							const finalMarkdown = frontmatter + '# ' + title + '\n\n' + markdownContent;
 							await this.app.vault.modify(existingFile, finalMarkdown);
 							console.log('Successfully updated: ' + filepath);
 							return true;
@@ -599,7 +590,7 @@ class GranolaSyncSettingTab extends obsidian.PluginSettingTab {
 			.setName('Auth Key Path')
 			.setDesc('Path to your Granola authentication key file')
 			.addText(text => {
-				text.setPlaceholder(getDefaultAuthPath());
+				text.setPlaceholder('Library/Application Support/Granola/supabase.json');
 				text.setValue(this.plugin.settings.authKeyPath);
 				text.onChange(async (value) => {
 					this.plugin.settings.authKeyPath = value;

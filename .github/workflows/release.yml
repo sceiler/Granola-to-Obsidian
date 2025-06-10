@@ -29,10 +29,8 @@ jobs:
           # Update versions.json with new version
           # First check if the version already exists
           if ! grep -q '"${{ steps.version.outputs.VERSION }}"' versions.json; then
-            # Remove the closing brace, add new version, then add closing brace back
-            sed -i '$d' versions.json  # Remove last line (closing brace)
-            echo '	"${{ steps.version.outputs.VERSION }}": "0.15.0"' >> versions.json
-            echo '}' >> versions.json
+            # Use jq to properly add the new version to maintain valid JSON
+            jq '. += {"${{ steps.version.outputs.VERSION }}": "0.15.0"}' versions.json > versions_temp.json && mv versions_temp.json versions.json
             echo "Added version ${{ steps.version.outputs.VERSION }} to versions.json"
           else
             echo "Version ${{ steps.version.outputs.VERSION }} already exists in versions.json"
