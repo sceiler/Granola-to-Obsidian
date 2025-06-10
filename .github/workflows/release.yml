@@ -20,8 +20,24 @@ jobs:
         id: version
         run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
       
-      - name: Update README version badge
+      - name: Update version files
         run: |
+          # Update manifest.json version
+          sed -i 's/"version": "[^"]*"/"version": "${{ steps.version.outputs.VERSION }}"/g' manifest.json
+          echo "Updated manifest.json version to ${{ steps.version.outputs.VERSION }}"
+          
+          # Update versions.json with new version
+          # First check if the version already exists
+          if ! grep -q '"${{ steps.version.outputs.VERSION }}"' versions.json; then
+            # Remove the closing brace, add new version, then add closing brace back
+            sed -i '$d' versions.json  # Remove last line (closing brace)
+            echo '	"${{ steps.version.outputs.VERSION }}": "0.15.0"' >> versions.json
+            echo '}' >> versions.json
+            echo "Added version ${{ steps.version.outputs.VERSION }} to versions.json"
+          else
+            echo "Version ${{ steps.version.outputs.VERSION }} already exists in versions.json"
+          fi
+          
           # Find the correct README file (case insensitive)
           README_FILE=""
           if [ -f "README.md" ]; then
@@ -40,11 +56,12 @@ jobs:
           # Update version badge in the README file
           sed -i 's/version-[0-9]\+\.[0-9]\+\.[0-9]\+-blue/version-${{ steps.version.outputs.VERSION }}-blue/g' "$README_FILE"
           
-          # Verify the change was made
-          echo "Updated $README_FILE version badge:"
-          grep "version-.*-blue" "$README_FILE" || echo "No version badge found to update"
+          # Verify the changes were made
+          echo "Updated files:"
+          echo "manifest.json version: $(grep '"version"' manifest.json)"
+          echo "$README_FILE version badge: $(grep 'version-.*-blue' "$README_FILE" || echo 'No version badge found')"
       
-      - name: Commit README changes
+      - name: Commit version updates
         run: |
           git config --local user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
@@ -59,14 +76,14 @@ jobs:
             README_FILE="Readme.md"
           fi
           
-          # Check if README was actually changed
-          if [ -z "$README_FILE" ] || git diff --quiet "$README_FILE"; then
-            echo "No changes to README file"
+          # Check if any files were actually changed
+          if git diff --quiet manifest.json versions.json $README_FILE 2>/dev/null; then
+            echo "No changes to version files"
           else
-            git add "$README_FILE"
-            git commit -m "Update README version badge to v${{ steps.version.outputs.VERSION }}"
+            git add manifest.json versions.json $README_FILE 2>/dev/null || true
+            git commit -m "Update version files to v${{ steps.version.outputs.VERSION }}"
             git push origin HEAD:main
-            echo "$README_FILE updated and pushed ✅"
+            echo "Version files updated and pushed ✅"
           fi
       
       - name: Verify plugin files exist
@@ -95,11 +112,53 @@ jobs:
           ls -la *.zip
           echo "Plugin zip created: ${{ steps.version.outputs.VERSION }}.zip ✅"
           
+      - name: Extract changelog for this version
+        id: changelog
+        run: |
+          if [ -f "CHANGELOG.md" ]; then
+            # Extract the changelog section for this version
+            VERSION_WITHOUT_V=${{ steps.version.outputs.VERSION }}
+            
+            # Get content between this version and the next version header
+            CHANGELOG_SECTION=$(awk "/^## \[$VERSION_WITHOUT_V\]/{flag=1; next} /^## \[/{flag=0} flag" CHANGELOG.md)
+            
+            if [ -n "$CHANGELOG_SECTION" ]; then
+              echo "Found changelog section for version $VERSION_WITHOUT_V"
+              echo "$CHANGELOG_SECTION" > RELEASE_CHANGELOG.txt
+            else
+              echo "No specific changelog found for version $VERSION_WITHOUT_V"
+              echo "## 📝 Changes" > RELEASE_CHANGELOG.txt
+              echo "" >> RELEASE_CHANGELOG.txt
+              echo "See the full [CHANGELOG.md](https://github.com/dannymcc/Granola-to-Obsidian/blob/main/CHANGELOG.md) for details." >> RELEASE_CHANGELOG.txt
+            fi
+          else
+            # Fallback to git commits if no CHANGELOG.md
+            PREVIOUS_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+            
+            if [ -z "$PREVIOUS_TAG" ]; then
+              echo "## 🚀 First Release" > RELEASE_CHANGELOG.txt
+              echo "" >> RELEASE_CHANGELOG.txt
+              echo "Initial version of Granola Sync plugin." >> RELEASE_CHANGELOG.txt
+            else
+              echo "## 📝 Changes" > RELEASE_CHANGELOG.txt
+              echo "" >> RELEASE_CHANGELOG.txt
+              git log --pretty=format:"- %s" $PREVIOUS_TAG..HEAD >> RELEASE_CHANGELOG.txt
+            fi
+          fi
+          
+          echo "Release changelog:"
+          cat RELEASE_CHANGELOG.txt
+          
       - name: Create GitHub Release
         run: |
+          # Read the extracted changelog
+          CHANGELOG_CONTENT=$(cat RELEASE_CHANGELOG.txt)
+          
           gh release create v${{ steps.version.outputs.VERSION }} \
             --title "Granola Sync v${{ steps.version.outputs.VERSION }}" \
             --notes "## 🚀 Granola Sync v${{ steps.version.outputs.VERSION }}
+            
+            $CHANGELOG_CONTENT
             
             ### 📦 Installation Options
             
@@ -112,11 +171,7 @@ jobs:
             1. Download individual files: \`main.js\`, \`manifest.json\`, \`styles.css\`, \`versions.json\`
             2. Create folder \`.obsidian/plugins/granola-sync/\` in your vault
             3. Place all files in the folder
-            4. Enable the plugin in Obsidian Settings → Community Plugins
-            
-            ---
-            
-            For detailed changelog and features, see the [README](https://github.com/dannymcc/Granola-to-Obsidian/blob/main/README.md)." \
+            4. Enable the plugin in Obsidian Settings → Community Plugins" \
             main.js manifest.json styles.css versions.json ${{ steps.version.outputs.VERSION }}.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
