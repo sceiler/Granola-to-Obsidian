@@ -434,8 +434,9 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 							}
 							frontmatter += '---\n\n';
 
-							// Use original title for heading (not sanitized)
-							const finalMarkdown = frontmatter + '# ' + title + '\n\n' + markdownContent;
+							// Use the note title (clean, with proper spacing) for the heading
+							const noteTitle = this.generateNoteTitle(doc);
+							const finalMarkdown = frontmatter + '# ' + noteTitle + '\n\n' + markdownContent;
 							await this.app.vault.modify(existingFile, finalMarkdown);
 							console.log('Successfully updated: ' + filepath);
 							return true;
