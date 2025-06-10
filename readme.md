@@ -44,7 +44,11 @@ Choose which folder in your vault to sync notes to (default: `Granola`)
 Optional prefix to add to all synced note filenames (e.g., `meeting-`, `granola-`)
 
 ### Auth Key Path
-Path to your Granola authentication file (default: `Library/Application Support/Granola/supabase.json`)
+Path to your Granola authentication file. Default locations:
+- **macOS**: `Library/Application Support/Granola/supabase.json`
+- **Windows**: `AppData/Roaming/Granola/supabase.json`
+
+The plugin automatically detects your operating system and sets the appropriate default path.
 
 ### Filename Template
 Customize how your notes are named using these variables:
@@ -138,7 +142,7 @@ Your converted meeting content appears here in clean Markdown format.
 
 - Obsidian v0.15.0+
 - Active Granola AI account
-- Granola desktop app installed and authenticated
+- Granola desktop app installed and authenticated (available for macOS and Windows)
 
 ## 🐛 Troubleshooting
 
@@ -155,7 +159,10 @@ Your converted meeting content appears here in clean Markdown format.
 
 ### Authentication Issues
 - Make sure Granola desktop app is logged in
-- Check that the auth key file exists at the specified path
+- Check that the auth key file exists at the expected location:
+  - **macOS**: `~/Library/Application Support/Granola/supabase.json`
+  - **Windows**: `C:\Users\[USERNAME]\AppData\Roaming\Granola\supabase.json`
+- If the file is in a different location, update the "Auth Key Path" in plugin settings
 - Try logging out and back in to Granola
 
 ### File Naming Issues
