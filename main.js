@@ -420,6 +420,7 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 						if (contentToParse) {
 							const markdownContent = this.convertProseMirrorToMarkdown(contentToParse);
 
+							// Create frontmatter with original title
 							let frontmatter = '---\n';
 							frontmatter += 'granola_id: ' + docId + '\n';
 							const escapedTitle = title.replace(/"/g, '\\"');
@@ -433,7 +434,7 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 							}
 							frontmatter += '---\n\n';
 
-							// Add the title as the main heading, then the content
+							// Use original title for heading (not sanitized)
 							const finalMarkdown = frontmatter + '# ' + title + '\n\n' + markdownContent;
 							await this.app.vault.modify(existingFile, finalMarkdown);
 							console.log('Successfully updated: ' + filepath);
