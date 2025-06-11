@@ -4,6 +4,8 @@ An Obsidian plugin that automatically syncs your [Granola AI](https://granola.ai
 
 ![Granola Sync Plugin](https://img.shields.io/badge/Obsidian-Plugin-purple) ![Version](https://img.shields.io/badge/version-1.0.6-blue) ![License](https://img.shields.io/badge/license-MIT-green)
 
+With thanks to ![Joseph Thacker](https://josephthacker.com/) for first discovering that it's possible to query the Granola ![API using locally stored auth keys](https://josephthacker.com/hacking/2025/05/08/reverse-engineering-granola-notes.html)!
+
 ## 🚀 Features
 
 - **🔄 Automatic Sync**: Configurable auto-sync from every minute to daily, or manual-only
