@@ -3,16 +3,27 @@ const path = require('path');
 const os = require('os');
 const fs = require('fs');
 
+function getDefaultAuthPath() {
+	const platform = os.platform();
+	if (platform === 'win32') {
+		return 'AppData/Roaming/Granola/supabase.json';
+	} else {
+		// Default to macOS path for macOS, Linux, and other platforms
+		return 'Library/Application Support/Granola/supabase.json';
+	}
+}
+
 const DEFAULT_SETTINGS = {
 	syncDirectory: 'Granola',
 	notePrefix: '',
-	authKeyPath: 'Library/Application Support/Granola/supabase.json',
+	authKeyPath: getDefaultAuthPath(),
 	filenameTemplate: '{title}',
 	dateFormat: 'YYYY-MM-DD',
 	autoSyncFrequency: 300000,
 	enableDailyNoteIntegration: false,
 	dailyNoteSectionName: '## Granola Meetings',
-	showRibbonIcon: true
+	showRibbonIcon: true,
+	skipExistingNotes: false
 };
 
 class GranolaSyncPlugin extends obsidian.Plugin {
@@ -316,6 +327,12 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 			.replace(/ss/g, seconds);
 	}
 
+	generateNoteTitle(doc) {
+		const title = doc.title || 'Untitled Granola Note';
+		// Clean the title for use as a heading - remove invalid characters but keep spaces
+		return title.replace(/[<>:"/\\|?*]/g, '').trim();
+	}
+
 	generateFilename(doc) {
 		const title = doc.title || 'Untitled Granola Note';
 		const docId = doc.id || 'unknown_id';
@@ -403,6 +420,14 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 
 		} catch (error) {
 			if (error.message.includes('already exists')) {
+				// Check if user wants to skip existing notes
+				if (this.settings.skipExistingNotes) {
+					const filename = this.generateFilename(doc) + '.md';
+					const filepath = path.join(this.settings.syncDirectory, filename);
+					console.log('Skipping existing note (skipExistingNotes enabled): ' + filepath);
+					return true; // Return true so it counts as "synced" but we don't update
+				}
+
 				try {
 					const filename = this.generateFilename(doc) + '.md';
 					const filepath = path.join(this.settings.syncDirectory, filename);
@@ -592,7 +617,7 @@ class GranolaSyncSettingTab extends obsidian.PluginSettingTab {
 			.setName('Auth Key Path')
 			.setDesc('Path to your Granola authentication key file')
 			.addText(text => {
-				text.setPlaceholder('Library/Application Support/Granola/supabase.json');
+				text.setPlaceholder(getDefaultAuthPath());
 				text.setValue(this.plugin.settings.authKeyPath);
 				text.onChange(async (value) => {
 					this.plugin.settings.authKeyPath = value;
@@ -654,6 +679,17 @@ class GranolaSyncSettingTab extends obsidian.PluginSettingTab {
 				toggle.setValue(this.plugin.settings.enableDailyNoteIntegration);
 				toggle.onChange(async (value) => {
 					this.plugin.settings.enableDailyNoteIntegration = value;
+					await this.plugin.saveSettings();
+				});
+			});
+
+		new obsidian.Setting(containerEl)
+			.setName('Skip Existing Notes')
+			.setDesc('When enabled, notes that already exist will not be updated during sync. This preserves any manual tags, summaries, or other additions you\'ve made.')
+			.addToggle(toggle => {
+				toggle.setValue(this.plugin.settings.skipExistingNotes);
+				toggle.onChange(async (value) => {
+					this.plugin.settings.skipExistingNotes = value;
 					await this.plugin.saveSettings();
 				});
 			});

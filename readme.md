@@ -16,6 +16,7 @@ With thanks to [Joseph Thacker](https://josephthacker.com/) for first discoverin
 - **🏷️ Note Prefixes**: Add custom prefixes to all synced notes
 - **🔧 Custom Auth Path**: Override the default Granola credentials location
 - **🗓️ Daily Note Integration**: Automatically add today's meetings to your Daily Note with times and links
+- **🛡️ Preserve Manual Additions**: Option to skip updating existing notes, preserving your tags, summaries, and custom properties
 - **✨ Rich Metadata**: Includes frontmatter with creation/update dates and Granola IDs
 - **📋 Content Conversion**: Converts ProseMirror content to clean Markdown
 - **🔄 Update Handling**: Intelligently updates existing notes instead of creating duplicates
@@ -106,6 +107,15 @@ Set your preferred frequency in settings and the plugin will sync automatically 
 - **"Granola Sync: Syncing..."** - Currently syncing (with animation)
 - **"Granola Sync: X notes synced"** - Success (shows for 3 seconds)
 - **"Granola Sync: Error - [details]"** - Error occurred (shows for 5 seconds)
+
+### Skip Existing Notes
+When enabled, notes that already exist in your vault will not be updated during sync. This is perfect for preserving any manual additions you've made such as:
+- Custom tags
+- Personal summaries
+- Additional notes or comments
+- Custom frontmatter properties
+
+**Note**: New notes from Granola will still be imported, but existing ones won't be overwritten.
 
 ### Daily Note Integration
 When enabled, today's Granola meetings automatically appear in your Daily Note:
