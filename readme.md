@@ -115,6 +115,14 @@ When enabled, notes that already exist in your vault will not be updated during 
 - Additional notes or comments
 - Custom frontmatter properties
 
+**How it works**: The plugin uses the `granola_id` in the frontmatter to identify existing notes, so you can safely:
+- Rename note files
+- Change filename templates
+- Modify note titles
+- Move notes within the sync directory
+
+As long as you don't modify the `granola_id` field, the plugin will recognize them as the same note.
+
 **Note**: New notes from Granola will still be imported, but existing ones won't be overwritten.
 
 ### Daily Note Integration

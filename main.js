@@ -377,6 +377,35 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 		return filename;
 	}
 
+	async findExistingNoteByGranolaId(granolaId) {
+		const folder = this.app.vault.getAbstractFileByPath(this.settings.syncDirectory);
+		if (!folder || !(folder instanceof obsidian.TFolder)) {
+			return null;
+		}
+
+		const files = folder.children.filter(file => file instanceof obsidian.TFile && file.extension === 'md');
+		
+		for (const file of files) {
+			try {
+				const content = await this.app.vault.read(file);
+				const frontmatterMatch = content.match(/^---\n([\s\S]*?)\n---/);
+				
+				if (frontmatterMatch) {
+					const frontmatter = frontmatterMatch[1];
+					const granolaIdMatch = frontmatter.match(/granola_id:\s*(.+)$/m);
+					
+					if (granolaIdMatch && granolaIdMatch[1].trim() === granolaId) {
+						return file;
+					}
+				}
+			} catch (error) {
+				console.error('Error reading file for Granola ID check:', file.path, error);
+			}
+		}
+		
+		return null;
+	}
+
 	async processDocument(doc) {
 		try {
 			const title = doc.title || 'Untitled Granola Note';
@@ -394,6 +423,46 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 				return false;
 			}
 
+			// Check if note already exists by Granola ID
+			const existingFile = await this.findExistingNoteByGranolaId(docId);
+			
+			if (existingFile) {
+				if (this.settings.skipExistingNotes) {
+					console.log('Skipping existing note (skipExistingNotes enabled): ' + existingFile.path);
+					return true; // Return true so it counts as "synced" but we don't update
+				}
+
+				// Update existing note
+				try {
+					const markdownContent = this.convertProseMirrorToMarkdown(contentToParse);
+
+					// Create frontmatter with original title
+					let frontmatter = '---\n';
+					frontmatter += 'granola_id: ' + docId + '\n';
+					const escapedTitle = title.replace(/"/g, '\\"');
+					frontmatter += 'title: "' + escapedTitle + '"\n';
+					
+					if (doc.created_at) {
+						frontmatter += 'created_at: ' + doc.created_at + '\n';
+					}
+					if (doc.updated_at) {
+						frontmatter += 'updated_at: ' + doc.updated_at + '\n';
+					}
+					frontmatter += '---\n\n';
+
+					// Use the note title (clean, with proper spacing) for the heading
+					const noteTitle = this.generateNoteTitle(doc);
+					const finalMarkdown = frontmatter + '# ' + noteTitle + '\n\n' + markdownContent;
+					await this.app.vault.modify(existingFile, finalMarkdown);
+					console.log('Successfully updated existing note: ' + existingFile.path);
+					return true;
+				} catch (updateError) {
+					console.error('Error updating existing note:', updateError);
+					return false;
+				}
+			}
+
+			// Create new note
 			const markdownContent = this.convertProseMirrorToMarkdown(contentToParse);
 
 			let frontmatter = '---\n';
@@ -415,62 +484,10 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 			const filepath = path.join(this.settings.syncDirectory, filename);
 
 			await this.app.vault.create(filepath, finalMarkdown);
-			console.log('Successfully saved: ' + filepath);
+			console.log('Successfully created new note: ' + filepath);
 			return true;
 
 		} catch (error) {
-			if (error.message.includes('already exists')) {
-				// Check if user wants to skip existing notes
-				if (this.settings.skipExistingNotes) {
-					const filename = this.generateFilename(doc) + '.md';
-					const filepath = path.join(this.settings.syncDirectory, filename);
-					console.log('Skipping existing note (skipExistingNotes enabled): ' + filepath);
-					return true; // Return true so it counts as "synced" but we don't update
-				}
-
-				try {
-					const filename = this.generateFilename(doc) + '.md';
-					const filepath = path.join(this.settings.syncDirectory, filename);
-					
-					const existingFile = this.app.vault.getAbstractFileByPath(filepath);
-					if (existingFile) {
-						const title = doc.title || 'Untitled Granola Note';
-						const docId = doc.id || 'unknown_id';
-						
-						let contentToParse = null;
-						if (doc.last_viewed_panel && doc.last_viewed_panel.content && doc.last_viewed_panel.content.type === 'doc') {
-							contentToParse = doc.last_viewed_panel.content;
-						}
-
-						if (contentToParse) {
-							const markdownContent = this.convertProseMirrorToMarkdown(contentToParse);
-
-							// Create frontmatter with original title
-							let frontmatter = '---\n';
-							frontmatter += 'granola_id: ' + docId + '\n';
-							const escapedTitle = title.replace(/"/g, '\\"');
-							frontmatter += 'title: "' + escapedTitle + '"\n';
-							
-							if (doc.created_at) {
-								frontmatter += 'created_at: ' + doc.created_at + '\n';
-							}
-							if (doc.updated_at) {
-								frontmatter += 'updated_at: ' + doc.updated_at + '\n';
-							}
-							frontmatter += '---\n\n';
-
-							// Use the note title (clean, with proper spacing) for the heading
-							const noteTitle = this.generateNoteTitle(doc);
-							const finalMarkdown = frontmatter + '# ' + noteTitle + '\n\n' + markdownContent;
-							await this.app.vault.modify(existingFile, finalMarkdown);
-							console.log('Successfully updated: ' + filepath);
-							return true;
-						}
-					}
-				} catch (updateError) {
-					console.error('Error updating file:', updateError);
-				}
-			}
 			console.error('Error processing document:', error);
 			return false;
 		}
