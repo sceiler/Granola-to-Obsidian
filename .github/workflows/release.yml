@@ -147,12 +147,19 @@ jobs:
           echo "Release changelog:"
           cat RELEASE_CHANGELOG.txt
           
+      - name: Create clean version tag
+        run: |
+          # Create a clean tag without 'v' prefix for Obsidian compatibility
+          git tag ${{ steps.version.outputs.VERSION }}
+          git push origin ${{ steps.version.outputs.VERSION }}
+          echo "Created clean tag: ${{ steps.version.outputs.VERSION }}"
+      
       - name: Create GitHub Release
         run: |
           # Read the extracted changelog
           CHANGELOG_CONTENT=$(cat RELEASE_CHANGELOG.txt)
           
-          gh release create v${{ steps.version.outputs.VERSION }} \
+          gh release create ${{ steps.version.outputs.VERSION }} \
             --title "Granola Sync v${{ steps.version.outputs.VERSION }}" \
             --notes "## 🚀 Granola Sync v${{ steps.version.outputs.VERSION }}
             
