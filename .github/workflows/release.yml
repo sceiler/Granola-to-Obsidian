@@ -3,7 +3,7 @@ name: Release Obsidian Plugin
 on:
   push:
     tags:
-      - 'v*'
+      - '[0-9]*.[0-9]*.[0-9]*'
 
 permissions:
   contents: write
@@ -18,7 +18,7 @@ jobs:
       
       - name: Get version from tag  
         id: version
-        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
       
       - name: Update version files
         run: |
@@ -79,7 +79,7 @@ jobs:
             echo "No changes to version files"
           else
             git add manifest.json versions.json $README_FILE 2>/dev/null || true
-            git commit -m "Update version files to v${{ steps.version.outputs.VERSION }}"
+            git commit -m "Update version files to ${{ steps.version.outputs.VERSION }}"
             git push origin HEAD:main
             echo "Version files updated and pushed ✅"
           fi
@@ -115,16 +115,16 @@ jobs:
         run: |
           if [ -f "CHANGELOG.md" ]; then
             # Extract the changelog section for this version
-            VERSION_WITHOUT_V=${{ steps.version.outputs.VERSION }}
+            VERSION=${{ steps.version.outputs.VERSION }}
             
             # Get content between this version and the next version header
-            CHANGELOG_SECTION=$(awk "/^## \[$VERSION_WITHOUT_V\]/{flag=1; next} /^## \[/{flag=0} flag" CHANGELOG.md)
+            CHANGELOG_SECTION=$(awk "/^## \[$VERSION\]/{flag=1; next} /^## \[/{flag=0} flag" CHANGELOG.md)
             
             if [ -n "$CHANGELOG_SECTION" ]; then
-              echo "Found changelog section for version $VERSION_WITHOUT_V"
+              echo "Found changelog section for version $VERSION"
               echo "$CHANGELOG_SECTION" > RELEASE_CHANGELOG.txt
             else
-              echo "No specific changelog found for version $VERSION_WITHOUT_V"
+              echo "No specific changelog found for version $VERSION"
               echo "## 📝 Changes" > RELEASE_CHANGELOG.txt
               echo "" >> RELEASE_CHANGELOG.txt
               echo "See the full [CHANGELOG.md](https://github.com/dannymcc/Granola-to-Obsidian/blob/main/CHANGELOG.md) for details." >> RELEASE_CHANGELOG.txt
@@ -147,13 +147,7 @@ jobs:
           echo "Release changelog:"
           cat RELEASE_CHANGELOG.txt
           
-      - name: Create clean version tag
-        run: |
-          # Create a clean tag without 'v' prefix for Obsidian compatibility
-          git tag ${{ steps.version.outputs.VERSION }}
-          git push origin ${{ steps.version.outputs.VERSION }}
-          echo "Created clean tag: ${{ steps.version.outputs.VERSION }}"
-      
+
       - name: Create GitHub Release
         run: |
           # Read the extracted changelog
