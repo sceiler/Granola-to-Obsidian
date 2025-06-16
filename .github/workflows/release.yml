@@ -154,10 +154,12 @@ jobs:
           CHANGELOG_CONTENT=$(cat RELEASE_CHANGELOG.txt)
           
           gh release create ${{ steps.version.outputs.VERSION }} \
-            --title "Granola Sync v${{ steps.version.outputs.VERSION }}" \
-            --notes "## 🚀 Granola Sync v${{ steps.version.outputs.VERSION }}
+            --title "Granola Sync ${{ steps.version.outputs.VERSION }}" \
+            --notes "## 🚀 Granola Sync ${{ steps.version.outputs.VERSION }}
             
             $CHANGELOG_CONTENT
+            
+            ---
             
             ### 📦 Installation Options
             
