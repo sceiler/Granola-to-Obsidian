@@ -701,6 +701,18 @@ class GranolaSyncSettingTab extends obsidian.PluginSettingTab {
 			});
 
 		new obsidian.Setting(containerEl)
+			.setName('Daily Note Section Name')
+			.setDesc('The heading name for the Granola meetings section in your Daily Note')
+			.addText(text => {
+				text.setPlaceholder('## Granola Meetings');
+				text.setValue(this.plugin.settings.dailyNoteSectionName);
+				text.onChange(async (value) => {
+					this.plugin.settings.dailyNoteSectionName = value;
+					await this.plugin.saveSettings();
+				});
+			});
+
+		new obsidian.Setting(containerEl)
 			.setName('Skip Existing Notes')
 			.setDesc('When enabled, notes that already exist will not be updated during sync. This preserves any manual tags, summaries, or other additions you\'ve made.')
 			.addToggle(toggle => {

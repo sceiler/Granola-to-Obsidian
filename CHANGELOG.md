@@ -2,6 +2,10 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.1.0]
+### Added
+- Customisable daily note section name setting - users can now customise the heading used for Granola meetings in their Daily Note
+
 ## [1.0.9]
 ### Changed
 - New version number bump to adpot new versioning
