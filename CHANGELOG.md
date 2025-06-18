@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.1.1]
+### Fixed
+- Resolved "File already exists" error by adding proper file name conflict detection
+- Fixed daily note integration to work with hierarchical folder structures (e.g. Notes/Daily/YYYY/MM)
+- Enhanced daily note detection with better logging and error handling
+- Improved folder creation for date-based daily note structures
+
 ## [1.1.0]
 ### Added
 - Customisable daily note section name setting - users can now customise the heading used for Granola meetings in their Daily Note

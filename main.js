@@ -483,6 +483,13 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 			const filename = this.generateFilename(doc) + '.md';
 			const filepath = path.join(this.settings.syncDirectory, filename);
 
+			// Check if file with same name already exists
+			const existingFileByName = this.app.vault.getAbstractFileByPath(filepath);
+			if (existingFileByName) {
+				console.log('File with same name already exists, skipping: ' + filepath);
+				return false;
+			}
+
 			await this.app.vault.create(filepath, finalMarkdown);
 			console.log('Successfully created new note: ' + filepath);
 			return true;
@@ -562,26 +569,64 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 				return null;
 			}
 
+			console.log('Daily notes plugin found and enabled');
+
 			const today = new Date();
-			const dateFormat = dailyNotesPlugin.instance.options && dailyNotesPlugin.instance.options.format ? dailyNotesPlugin.instance.options.format : 'YYYY-MM-DD';
+			let dateFormat = 'YYYY-MM-DD'; // Default format
+			let dailyNotesFolder = ''; // Default folder
+			
+			// Try to get the date format and folder from plugin settings
+			if (dailyNotesPlugin.instance && dailyNotesPlugin.instance.options) {
+				if (dailyNotesPlugin.instance.options.format) {
+					dateFormat = dailyNotesPlugin.instance.options.format;
+				}
+				if (dailyNotesPlugin.instance.options.folder) {
+					dailyNotesFolder = dailyNotesPlugin.instance.options.folder;
+				}
+			}
+			
+			console.log('Daily note settings - Format:', dateFormat, 'Folder template:', dailyNotesFolder || '(root)');
+			
 			const todayString = this.formatDate(today.toISOString(), dateFormat);
+			console.log('Today string:', todayString);
 			
-			const dailyNotesFolder = dailyNotesPlugin.instance.options && dailyNotesPlugin.instance.options.folder ? dailyNotesPlugin.instance.options.folder : '';
+			// Expand date format variables in the folder path
+			let expandedFolder = dailyNotesFolder;
+			if (dailyNotesFolder) {
+				expandedFolder = this.formatDate(today.toISOString(), dailyNotesFolder);
+			}
 			
-			const dailyNotePath = dailyNotesFolder ? 
-				dailyNotesFolder + '/' + todayString + '.md' : 
+			console.log('Expanded folder path:', expandedFolder || '(root)');
+			
+			const dailyNotePath = expandedFolder ? 
+				expandedFolder + '/' + todayString + '.md' : 
 				todayString + '.md';
+			
+			console.log('Looking for daily note at path:', dailyNotePath);
 
 			let dailyNote = this.app.vault.getAbstractFileByPath(dailyNotePath);
 			
 			if (!dailyNote) {
-				const folder = dailyNotesFolder ? 
-					this.app.vault.getAbstractFileByPath(dailyNotesFolder) : 
-					this.app.vault.getRoot();
+				console.log('Daily note not found, attempting to create it');
 				
-				if (folder) {
-					dailyNote = await this.app.vault.create(dailyNotePath, '');
+				// Ensure the folder exists
+				if (expandedFolder) {
+					const folder = this.app.vault.getAbstractFileByPath(expandedFolder);
+					if (!folder) {
+						console.log('Daily notes folder does not exist, creating it:', expandedFolder);
+						await this.app.vault.createFolder(expandedFolder);
+					}
 				}
+				
+				try {
+					dailyNote = await this.app.vault.create(dailyNotePath, '');
+					console.log('Created new daily note:', dailyNotePath);
+				} catch (createError) {
+					console.error('Failed to create daily note:', createError);
+					return null;
+				}
+			} else {
+				console.log('Found existing daily note:', dailyNotePath);
 			}
 
 			return dailyNote;
