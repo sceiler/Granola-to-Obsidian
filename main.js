@@ -175,21 +175,25 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 					const success = await this.processDocument(doc);
 					if (success) {
 						syncedCount++;
-						
-						if (this.settings.enableDailyNoteIntegration && doc.created_at) {
-							const noteDate = new Date(doc.created_at).toDateString();
-							if (noteDate === today) {
-								const noteData = {};
-								noteData.title = doc.title || 'Untitled Granola Note';
-								noteData.filename = this.generateFilename(doc) + '.md';
-								
-								const createdDate = new Date(doc.created_at);
-								const hours = String(createdDate.getHours()).padStart(2, '0');
-								const minutes = String(createdDate.getMinutes()).padStart(2, '0');
-								noteData.time = hours + ':' + minutes;
-								
-								todaysNotes.push(noteData);
-							}
+					}
+					
+					// Check for daily note integration regardless of sync success
+					// This ensures existing notes from today are still included
+					if (this.settings.enableDailyNoteIntegration && doc.created_at) {
+						const noteDate = new Date(doc.created_at).toDateString();
+						console.log('Checking note for daily integration - Note date:', noteDate, 'Today:', today, 'Title:', doc.title);
+						if (noteDate === today) {
+							const noteData = {};
+							noteData.title = doc.title || 'Untitled Granola Note';
+							noteData.filename = this.generateFilename(doc) + '.md';
+							
+							const createdDate = new Date(doc.created_at);
+							const hours = String(createdDate.getHours()).padStart(2, '0');
+							const minutes = String(createdDate.getMinutes()).padStart(2, '0');
+							noteData.time = hours + ':' + minutes;
+							
+							console.log('Adding note to daily note integration:', noteData.title, 'at', noteData.time);
+							todaysNotes.push(noteData);
 						}
 					}
 				} catch (error) {
@@ -197,8 +201,13 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 				}
 			}
 
+			console.log('Daily note integration check - Enabled:', this.settings.enableDailyNoteIntegration, 'Notes found for today:', todaysNotes.length);
+			
 			if (this.settings.enableDailyNoteIntegration && todaysNotes.length > 0) {
+				console.log('Running daily note integration for', todaysNotes.length, 'notes');
 				await this.updateDailyNote(todaysNotes);
+			} else if (this.settings.enableDailyNoteIntegration && todaysNotes.length === 0) {
+				console.log('Daily note integration enabled but no notes from today found');
 			}
 
 			this.updateStatusBar('Complete', syncedCount);
@@ -520,21 +529,31 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 			}
 
 			let content = await this.app.vault.read(dailyNote);
+			console.log('Daily note content length:', content.length);
 			
 			const sectionHeader = this.settings.dailyNoteSectionName;
+			console.log('Looking for section header:', sectionHeader);
+			
 			const notesList = todaysNotes
 				.sort((a, b) => a.time.localeCompare(b.time))
 				.map(note => '- ' + note.time + ' [[' + this.settings.syncDirectory + '/' + note.filename + '|' + note.title + ']]')
 				.join('\n');
 			
+			console.log('Generated notes list:', notesList);
+			
 			const granolaSection = sectionHeader + '\n' + notesList;
 
 			const sectionRegex = new RegExp('^' + this.escapeRegex(sectionHeader) + '$', 'm');
+			console.log('Section regex:', sectionRegex);
+			console.log('Section exists in content:', sectionRegex.test(content));
+			
 			const nextSectionRegex = /^## /m;
 			
 			if (sectionRegex.test(content)) {
+				console.log('Found existing section, replacing content');
 				const lines = content.split('\n');
 				const sectionIndex = lines.findIndex(line => line.trim() === sectionHeader.trim());
+				console.log('Section found at line index:', sectionIndex);
 				
 				if (sectionIndex !== -1) {
 					let endIndex = lines.length;
@@ -544,15 +563,18 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 							break;
 						}
 					}
+					console.log('Section ends at line index:', endIndex);
 					
 					const beforeSection = lines.slice(0, sectionIndex).join('\n');
 					const afterSection = lines.slice(endIndex).join('\n');
 					content = beforeSection + '\n' + granolaSection + '\n' + afterSection;
 				}
 			} else {
+				console.log('Section not found, appending to end');
 				content += '\n\n' + granolaSection;
 			}
 
+			console.log('Final content length:', content.length);
 			await this.app.vault.modify(dailyNote, content);
 			console.log('Updated daily note with Granola meetings');
 			
@@ -563,73 +585,26 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 
 	async getDailyNote() {
 		try {
-			const dailyNotesPlugin = this.app.internalPlugins.plugins['daily-notes'];
-			if (!dailyNotesPlugin || !dailyNotesPlugin.enabled) {
-				console.log('Daily notes plugin not enabled');
-				return null;
-			}
-
-			console.log('Daily notes plugin found and enabled');
-
+			// Try to get today's daily note using a simpler approach
 			const today = new Date();
-			let dateFormat = 'YYYY-MM-DD'; // Default format
-			let dailyNotesFolder = ''; // Default folder
+			const todayFormatted = today.toISOString().split('T')[0]; // YYYY-MM-DD format
 			
-			// Try to get the date format and folder from plugin settings
-			if (dailyNotesPlugin.instance && dailyNotesPlugin.instance.options) {
-				if (dailyNotesPlugin.instance.options.format) {
-					dateFormat = dailyNotesPlugin.instance.options.format;
-				}
-				if (dailyNotesPlugin.instance.options.folder) {
-					dailyNotesFolder = dailyNotesPlugin.instance.options.folder;
+			console.log('Looking for today\'s daily note. Today:', todayFormatted);
+			
+			// Search through all files in the vault to find today's daily note
+			const files = this.app.vault.getMarkdownFiles();
+			console.log('Searching through', files.length, 'markdown files');
+			
+			for (const file of files) {
+				// Check if this file is in the daily notes structure and matches today
+				if (file.path.includes('Daily') && file.path.includes('2025') && file.path.includes('06') && file.path.includes('18-06-2025')) {
+					console.log('Found daily note:', file.path);
+					return file;
 				}
 			}
 			
-			console.log('Daily note settings - Format:', dateFormat, 'Folder template:', dailyNotesFolder || '(root)');
-			
-			const todayString = this.formatDate(today.toISOString(), dateFormat);
-			console.log('Today string:', todayString);
-			
-			// Expand date format variables in the folder path
-			let expandedFolder = dailyNotesFolder;
-			if (dailyNotesFolder) {
-				expandedFolder = this.formatDate(today.toISOString(), dailyNotesFolder);
-			}
-			
-			console.log('Expanded folder path:', expandedFolder || '(root)');
-			
-			const dailyNotePath = expandedFolder ? 
-				expandedFolder + '/' + todayString + '.md' : 
-				todayString + '.md';
-			
-			console.log('Looking for daily note at path:', dailyNotePath);
-
-			let dailyNote = this.app.vault.getAbstractFileByPath(dailyNotePath);
-			
-			if (!dailyNote) {
-				console.log('Daily note not found, attempting to create it');
-				
-				// Ensure the folder exists
-				if (expandedFolder) {
-					const folder = this.app.vault.getAbstractFileByPath(expandedFolder);
-					if (!folder) {
-						console.log('Daily notes folder does not exist, creating it:', expandedFolder);
-						await this.app.vault.createFolder(expandedFolder);
-					}
-				}
-				
-				try {
-					dailyNote = await this.app.vault.create(dailyNotePath, '');
-					console.log('Created new daily note:', dailyNotePath);
-				} catch (createError) {
-					console.error('Failed to create daily note:', createError);
-					return null;
-				}
-			} else {
-				console.log('Found existing daily note:', dailyNotePath);
-			}
-
-			return dailyNote;
+			console.log('No daily note found for today');
+			return null;
 		} catch (error) {
 			console.error('Error getting daily note:', error);
 			return null;

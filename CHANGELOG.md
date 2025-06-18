@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.1.2]
+### Fixed
+- Completely resolved daily note integration issues by implementing a robust file search-based approach
+- Daily note integration now works regardless of complex Daily Notes plugin configurations
+- Meetings from today are now properly added to the daily note section as expected
+
 ## [1.1.1]
 ### Fixed
 - Resolved "File already exists" error by adding proper file name conflict detection
