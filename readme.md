@@ -4,8 +4,6 @@ An Obsidian plugin that automatically syncs your [Granola AI](https://granola.ai
 
 ![Granola Sync Plugin](https://img.shields.io/badge/Obsidian-Plugin-purple) ![Version](https://img.shields.io/badge/version-1.2.0-blue) ![License](https://img.shields.io/badge/license-MIT-green)
 
-With thanks to [Joseph Thacker](https://josephthacker.com/) for first discovering that it's possible to query the Granola [API using locally stored auth keys](https://josephthacker.com/hacking/2025/05/08/reverse-engineering-granola-notes.html)!
-
 ![Granola Sync](https://i.imgur.com/EmFRYTO.png)
 
 ## 🚀 Features
@@ -18,6 +16,8 @@ With thanks to [Joseph Thacker](https://josephthacker.com/) for first discoverin
 - **🏷️ Note Prefixes**: Add custom prefixes to all synced notes
 - **🔧 Custom Auth Path**: Override the default Granola credentials location
 - **🗓️ Daily Note Integration**: Automatically add today's meetings to your Daily Note with times and links
+- **🏷️ Attendee Tagging**: Automatically extract meeting attendees and add them as organized tags (e.g., `person/john-smith`)
+- **🔧 Smart Filtering**: Exclude your own name from attendee tags with configurable settings
 - **🛡️ Preserve Manual Additions**: Option to skip updating existing notes, preserving your tags, summaries, and custom properties
 - **✨ Rich Metadata**: Includes frontmatter with creation/update dates and Granola IDs
 - **📋 Content Conversion**: Converts ProseMirror content to clean Markdown
@@ -86,6 +86,26 @@ Customize date formatting using these tokens:
 - `MM-DD-YYYY` → 06-06-2025 (US)
 - `DD.MM.YY` → 06.06.25 (German)
 
+### Attendee Tagging
+
+Automatically extract meeting attendees from Granola and add them as organized tags in your note frontmatter.
+
+#### Settings:
+- **Include Attendee Tags**: Enable/disable attendee tagging (disabled by default)
+- **Exclude My Name from Tags**: Remove your own name from attendee tags (recommended)
+- **My Name**: Set your name as it appears in Granola meetings for filtering
+
+#### Tag Format:
+- Attendees are converted to clean, organized tags with the `person/` prefix
+- Special characters are removed, spaces become hyphens, all lowercase
+- Example: "John Smith" → `person/john-smith`
+
+#### Benefits:
+- **Easy searching**: Find all meetings with specific people using `#person/john-smith`
+- **Clean organization**: All attendee tags grouped under `person/` prefix
+- **Smart filtering**: Your name is automatically excluded from tags
+- **Retroactive updates**: Can update existing notes with attendee tags while preserving content
+
 ### Auto-Sync Frequency
 Choose how often to automatically sync:
 - Never (manual only)
@@ -136,6 +156,33 @@ When enabled, today's Granola meetings automatically appear in your Daily Note:
 - 14:00 [[Granola/2025-06-09_Client_Review|Client Review Meeting]]
 ```
 
+### Attendee Tagging Usage
+
+Once enabled, attendee tagging automatically enhances your meeting notes:
+
+#### Finding Meetings by Attendee
+- **Search by tag**: Use `#person/john-smith` to find all meetings with John Smith
+- **Tag panel**: Browse all `person/` tags in Obsidian's tag panel
+- **Graph view**: Visualize meeting connections through attendee relationships
+
+#### Smart Name Detection
+The plugin extracts attendee names from:
+- Granola's `people` field (primary source)
+- Google Calendar attendee information (if available)
+- Email addresses (converts to readable names when needed)
+
+#### Automatic Updates
+When both "Skip Existing Notes" and "Include Attendee Tags" are enabled:
+- **Content preserved**: Your manual edits, summaries, and custom properties remain untouched
+- **Tags updated**: Attendee tags are refreshed based on current meeting data
+- **Non-person tags preserved**: Your custom tags are kept alongside attendee tags
+
+**Example workflow:**
+1. Enable attendee tagging in settings
+2. Set your name (e.g., "Danny McClelland") to exclude from tags
+3. Run sync - existing notes get attendee tags, content stays the same
+4. Future syncs keep attendee tags current while preserving your edits
+
 ### Preview Your Settings
 Use the preview buttons in settings to see how your filename template and date format will look before syncing.
 
@@ -149,9 +196,13 @@ granola_id: abc123def456
 title: "Team Standup Meeting"
 created_at: 2025-06-06T14:30:00.000Z
 updated_at: 2025-06-06T15:45:00.000Z
+tags:
+  - person/john-smith
+  - person/sarah-jones
+  - person/mike-wilson
 ---
 
-# Meeting Notes
+# Team Standup Meeting
 
 Your converted meeting content appears here in clean Markdown format.
 
@@ -192,6 +243,13 @@ Your converted meeting content appears here in clean Markdown format.
 - Avoid special characters in custom prefixes
 - Check that your date format is valid
 
+### Attendee Tagging Issues
+- **No attendee tags appearing**: Check that "Include Attendee Tags" is enabled in settings
+- **Your name still appears in tags**: Update "My Name" setting to match exactly how it appears in Granola
+- **Missing attendees**: Some meeting platforms may not provide complete attendee information
+- **Duplicate tags**: The plugin automatically prevents duplicate tags - check for variations in name formatting
+- **Tags not updating**: Ensure both "Skip Existing Notes" and "Include Attendee Tags" are enabled for updates
+
 ## 🤝 Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
@@ -208,6 +266,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 🙏 Acknowledgments
 
+- With thanks to [Joseph Thacker](https://josephthacker.com/) for first discovering that it's possible to query the Granola [API using locally stored auth keys](https://josephthacker.com/hacking/2025/05/08/reverse-engineering-granola-notes.html)!
 - [Granola AI](https://granola.ai) for creating an amazing meeting assistant
 - The Obsidian community for plugin development resources
 - Contributors and testers who helped improve this plugin
