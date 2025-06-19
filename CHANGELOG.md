@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.2.0]
+### Added
+- **Attendee tagging system**: Automatically extract meeting attendees and add them as tags in note frontmatter
+- **Smart name filtering**: Exclude your own name from attendee tags with configurable settings
+- **Organised tag structure**: Uses `person/` prefix for clean tag organisation (e.g. `person/john-smith`)
+- **Existing note updates**: Updates attendee tags in existing notes while preserving manual edits when enabled
+- **Conservative defaults**: Attendee tagging disabled by default to avoid disrupting existing workflows
+
+### Changed
+- Enhanced settings UI with attendee tagging configuration options
+- Improved case-insensitive name matching for more reliable filtering
+
 ## [1.1.2]
 ### Fixed
 - Completely resolved daily note integration issues by implementing a robust file search-based approach
