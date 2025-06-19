@@ -636,17 +636,37 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 			const today = new Date();
 			const todayFormatted = today.toISOString().split('T')[0]; // YYYY-MM-DD format
 			
+			// Generate various date formats to search for
+			const year = today.getFullYear();
+			const month = String(today.getMonth() + 1).padStart(2, '0');
+			const day = String(today.getDate()).padStart(2, '0');
+			
+			// Common date formats in daily notes
+			const searchFormats = [
+				`${day}-${month}-${year}`, // DD-MM-YYYY
+				`${year}-${month}-${day}`, // YYYY-MM-DD  
+				`${month}-${day}-${year}`, // MM-DD-YYYY
+				`${day}.${month}.${year}`, // DD.MM.YYYY
+				`${year}/${month}/${day}`, // YYYY/MM/DD
+				`${day}/${month}/${year}`, // DD/MM/YYYY
+			];
+			
 			console.log('Looking for today\'s daily note. Today:', todayFormatted);
+			console.log('Searching for date formats:', searchFormats);
 			
 			// Search through all files in the vault to find today's daily note
 			const files = this.app.vault.getMarkdownFiles();
 			console.log('Searching through', files.length, 'markdown files');
 			
 			for (const file of files) {
-				// Check if this file is in the daily notes structure and matches today
-				if (file.path.includes('Daily') && file.path.includes('2025') && file.path.includes('06') && file.path.includes('18-06-2025')) {
-					console.log('Found daily note:', file.path);
-					return file;
+				// Check if this file is in the daily notes structure and matches any of today's date formats
+				if (file.path.includes('Daily')) {
+					for (const dateFormat of searchFormats) {
+						if (file.path.includes(dateFormat)) {
+							console.log('Found daily note:', file.path, 'matching format:', dateFormat);
+							return file;
+						}
+					}
 				}
 			}
 			

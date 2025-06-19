@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.2.1]
+### Fixed
+- **Critical bug**: Fixed daily note integration using hardcoded date instead of current date
+- Daily note meetings now correctly appear in today's note instead of a previous date
+- Enhanced daily note detection to work with multiple date formats (DD-MM-YYYY, YYYY-MM-DD, etc.)
+
 ## [1.2.0]
 ### Added
 - **Attendee tagging system**: Automatically extract meeting attendees and add them as tags in note frontmatter
