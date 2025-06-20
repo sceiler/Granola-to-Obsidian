@@ -186,17 +186,22 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 						const noteDate = new Date(doc.created_at).toDateString();
 						console.log('Checking note for daily integration - Note date:', noteDate, 'Today:', today, 'Title:', doc.title);
 						if (noteDate === today) {
-							const noteData = {};
-							noteData.title = doc.title || 'Untitled Granola Note';
-							noteData.filename = this.generateFilename(doc) + '.md';
+							// Find the actual file that was created or already exists
+							const actualFile = await this.findExistingNoteByGranolaId(doc.id);
 							
-							const createdDate = new Date(doc.created_at);
-							const hours = String(createdDate.getHours()).padStart(2, '0');
-							const minutes = String(createdDate.getMinutes()).padStart(2, '0');
-							noteData.time = hours + ':' + minutes;
-							
-							console.log('Adding note to daily note integration:', noteData.title, 'at', noteData.time);
-							todaysNotes.push(noteData);
+							if (actualFile) {
+								const noteData = {};
+								noteData.title = doc.title || 'Untitled Granola Note';
+								noteData.actualFilePath = actualFile.path; // Use actual file path
+								
+								const createdDate = new Date(doc.created_at);
+								const hours = String(createdDate.getHours()).padStart(2, '0');
+								const minutes = String(createdDate.getMinutes()).padStart(2, '0');
+								noteData.time = hours + ':' + minutes;
+								
+								console.log('Adding note to daily note integration:', noteData.title, 'at', noteData.time, 'path:', noteData.actualFilePath);
+								todaysNotes.push(noteData);
+							}
 						}
 					}
 				} catch (error) {
@@ -540,14 +545,27 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 			const filepath = path.join(this.settings.syncDirectory, filename);
 
 			// Check if file with same name already exists
+			let finalFilepath = filepath;
 			const existingFileByName = this.app.vault.getAbstractFileByPath(filepath);
 			if (existingFileByName) {
-				console.log('File with same name already exists, skipping: ' + filepath);
-				return false;
+				// Create a unique filename by appending timestamp or ID
+				const createdDate = new Date(doc.created_at);
+				const timestamp = this.formatDate(doc.created_at, 'HH-mm');
+				const baseFilename = this.generateFilename(doc);
+				const uniqueFilename = baseFilename + '_' + timestamp + '.md'; 
+				finalFilepath = path.join(this.settings.syncDirectory, uniqueFilename);
+				console.log('File with same name already exists, creating with unique name: ' + finalFilepath);
+				
+				// Check if the unique filename also exists
+				const existingUniqueFile = this.app.vault.getAbstractFileByPath(finalFilepath);
+				if (existingUniqueFile) {
+					console.log('Unique filename also exists, skipping: ' + finalFilepath);
+					return false;
+				}
 			}
 
-			await this.app.vault.create(filepath, finalMarkdown);
-			console.log('Successfully created new note: ' + filepath);
+			await this.app.vault.create(finalFilepath, finalMarkdown);
+			console.log('Successfully created new note: ' + finalFilepath);
 			return true;
 
 		} catch (error) {
@@ -583,7 +601,7 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 			
 			const notesList = todaysNotes
 				.sort((a, b) => a.time.localeCompare(b.time))
-				.map(note => '- ' + note.time + ' [[' + this.settings.syncDirectory + '/' + note.filename + '|' + note.title + ']]')
+				.map(note => '- ' + note.time + ' [[' + note.actualFilePath + '|' + note.title + ']]')
 				.join('\n');
 			
 			console.log('Generated notes list:', notesList);

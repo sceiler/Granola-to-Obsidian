@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.2.2]
+### Fixed
+- **Critical bug**: Fixed issue where meetings with duplicate titles (e.g., recurring "Enterprise Team | Project Update") were being skipped instead of created with unique filenames
+- Daily note integration now works correctly for meetings that would have been skipped due to filename collisions
+- Added timestamp-based unique filename generation when title conflicts occur
+
 ## [1.2.1]
 ### Fixed
 - **Critical bug**: Fixed daily note integration using hardcoded date instead of current date
