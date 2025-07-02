@@ -2,6 +2,26 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.0]
+### Added
+- **Granola URL integration**: Add links back to original Granola notes in frontmatter (`granola_url`)
+- **Enhanced attendee extraction**: Improved name resolution using detailed person data from Granola API
+- **Multi-folder infrastructure**: Code infrastructure ready for when Granola API includes folder information
+- **Organized settings UI**: Grouped related settings into clear sections (Metadata & Tags, Daily Note Integration, etc.)
+- **Better deduplication**: Prevents duplicate attendees from multiple sources (people array + calendar events)
+
+### Enhanced
+- **Attendee name detection**: Now uses `fullName`, `givenName`, `familyName` fields for more accurate names
+- **Settings organization**: Related settings grouped under clear headings for better UX
+- **Metadata management**: Unified handling of tags, URLs, and other frontmatter data
+- **Console output**: Cleaner debug information with better organization
+
+### Technical
+- **Future-ready folder support**: All infrastructure in place for multi-folder tagging when API supports it
+- **Improved email tracking**: Prevents processing same attendee multiple times across different data sources
+- **Enhanced error handling**: Better error messages and graceful fallbacks
+- **Code organization**: Cleaner separation of concerns and modular design
+
 ## [1.2.2]
 ### Fixed
 - **Critical bug**: Fixed issue where meetings with duplicate titles (e.g., recurring "Enterprise Team | Project Update") were being skipped instead of created with unique filenames

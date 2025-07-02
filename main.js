@@ -26,7 +26,9 @@ const DEFAULT_SETTINGS = {
 	skipExistingNotes: false,
 	includeAttendeeTags: false,
 	excludeMyNameFromTags: true,
-	myName: 'Danny McClelland'
+	myName: 'Danny McClelland',
+	includeFolderTags: false,
+	includeGranolaUrl: false
 };
 
 class GranolaSyncPlugin extends obsidian.Plugin {
@@ -250,6 +252,9 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 
 	async fetchGranolaDocuments(token) {
 		try {
+			// Note: Workspace fetching is temporarily disabled as folder information is not available
+			let workspaces = null;
+
 			const response = await obsidian.requestUrl({
 				url: 'https://api.granola.ai/v2/get-documents',
 				method: 'POST',
@@ -275,6 +280,10 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 			}
 
 			console.log('Successfully fetched ' + apiResponse.docs.length + ' documents from Granola');
+			
+			// Store workspaces for later use in folder extraction
+			this.workspaces = workspaces;
+			
 			return apiResponse.docs;
 		} catch (error) {
 			console.error('Error fetching documents:', error);
@@ -444,19 +453,19 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 			const existingFile = await this.findExistingNoteByGranolaId(docId);
 			
 			if (existingFile) {
-				if (this.settings.skipExistingNotes && !this.settings.includeAttendeeTags) {
+				if (this.settings.skipExistingNotes && !this.settings.includeAttendeeTags && !this.settings.includeGranolaUrl) {
 					console.log('Skipping existing note (skipExistingNotes enabled): ' + existingFile.path);
 					return true; // Return true so it counts as "synced" but we don't update
 				}
 				
-				if (this.settings.skipExistingNotes && this.settings.includeAttendeeTags) {
-					// Only update attendee tags, preserve existing content
+				if (this.settings.skipExistingNotes && (this.settings.includeAttendeeTags || this.settings.includeGranolaUrl)) {
+					// Only update metadata (tags, URLs), preserve existing content
 					try {
-						console.log('Updating attendee tags for existing note: ' + existingFile.path);
-						await this.updateExistingNoteAttendees(existingFile, doc);
+						console.log('Updating metadata for existing note: ' + existingFile.path);
+						await this.updateExistingNoteMetadata(existingFile, doc);
 						return true;
 					} catch (error) {
-						console.error('Error updating attendee tags for existing note:', error);
+						console.error('Error updating metadata for existing note:', error);
 						return false;
 					}
 				}
@@ -469,14 +478,29 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 					const attendeeNames = this.extractAttendeeNames(doc);
 					const attendeeTags = this.generateAttendeeTags(attendeeNames);
 					
+					// Extract folder information
+					const folderNames = this.extractFolderNames(doc);
+					const folderTags = this.generateFolderTags(folderNames);
+					
+					// Generate Granola URL
+					const granolaUrl = this.generateGranolaUrl(docId);
+					
 					console.log('Attendee names found:', attendeeNames);
 					console.log('Generated attendee tags:', attendeeTags);
+					console.log('Generated Granola URL:', granolaUrl);
+
+					// Combine all tags
+					const allTags = [...attendeeTags, ...folderTags];
 
 					// Create frontmatter with original title
 					let frontmatter = '---\n';
 					frontmatter += 'granola_id: ' + docId + '\n';
 					const escapedTitle = title.replace(/"/g, '\\"');
 					frontmatter += 'title: "' + escapedTitle + '"\n';
+					
+					if (granolaUrl) {
+						frontmatter += 'granola_url: "' + granolaUrl + '"\n';
+					}
 					
 					if (doc.created_at) {
 						frontmatter += 'created_at: ' + doc.created_at + '\n';
@@ -485,10 +509,10 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 						frontmatter += 'updated_at: ' + doc.updated_at + '\n';
 					}
 					
-					// Add attendee tags if any were found
-					if (attendeeTags.length > 0) {
+					// Add all tags if any were found
+					if (allTags.length > 0) {
 						frontmatter += 'tags:\n';
-						for (const tag of attendeeTags) {
+						for (const tag of allTags) {
 							frontmatter += '  - ' + tag + '\n';
 						}
 					}
@@ -514,13 +538,28 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 			const attendeeNames = this.extractAttendeeNames(doc);
 			const attendeeTags = this.generateAttendeeTags(attendeeNames);
 			
+			// Extract folder information
+			const folderNames = this.extractFolderNames(doc);
+			const folderTags = this.generateFolderTags(folderNames);
+			
+			// Generate Granola URL
+			const granolaUrl = this.generateGranolaUrl(docId);
+			
 			console.log('Attendee names found:', attendeeNames);
 			console.log('Generated attendee tags:', attendeeTags);
+			console.log('Generated Granola URL:', granolaUrl);
+
+			// Combine all tags
+			const allTags = [...attendeeTags, ...folderTags];
 
 			let frontmatter = '---\n';
 			frontmatter += 'granola_id: ' + docId + '\n';
 			const escapedTitle = title.replace(/"/g, '\\"');
 			frontmatter += 'title: "' + escapedTitle + '"\n';
+			
+			if (granolaUrl) {
+				frontmatter += 'granola_url: "' + granolaUrl + '"\n';
+			}
 			
 			if (doc.created_at) {
 				frontmatter += 'created_at: ' + doc.created_at + '\n';
@@ -529,10 +568,10 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 				frontmatter += 'updated_at: ' + doc.updated_at + '\n';
 			}
 			
-			// Add attendee tags if any were found
-			if (attendeeTags.length > 0) {
+			// Add all tags if any were found
+			if (allTags.length > 0) {
 				frontmatter += 'tags:\n';
-				for (const tag of attendeeTags) {
+				for (const tag of allTags) {
 					frontmatter += '  - ' + tag + '\n';
 				}
 			}
@@ -702,19 +741,40 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 
 	extractAttendeeNames(doc) {
 		const attendees = [];
+		const processedEmails = new Set(); // Track processed emails to avoid duplicates
 		
 		try {
-			// Check the people field for attendee information
+			// Check the people field for attendee information (enhanced with detailed person data)
 			if (doc.people && Array.isArray(doc.people)) {
 				for (const person of doc.people) {
+					let name = null;
+					
+					// Try to get name from various fields
 					if (person.name) {
-						attendees.push(person.name);
+						name = person.name;
 					} else if (person.display_name) {
-						attendees.push(person.display_name);
+						name = person.display_name;
+					} else if (person.details && person.details.person && person.details.person.name) {
+						// Use the detailed person information if available
+						const personDetails = person.details.person.name;
+						if (personDetails.fullName) {
+							name = personDetails.fullName;
+						} else if (personDetails.givenName && personDetails.familyName) {
+							name = `${personDetails.givenName} ${personDetails.familyName}`;
+						} else if (personDetails.givenName) {
+							name = personDetails.givenName;
+						}
 					} else if (person.email) {
 						// Extract name from email if no display name
 						const emailName = person.email.split('@')[0].replace(/[._]/g, ' ');
-						attendees.push(emailName);
+						name = emailName;
+					}
+					
+					if (name && !attendees.includes(name)) {
+						attendees.push(name);
+						if (person.email) {
+							processedEmails.add(person.email);
+						}
 					}
 				}
 			}
@@ -722,11 +782,20 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 			// Also check google_calendar_event for additional attendee info
 			if (doc.google_calendar_event && doc.google_calendar_event.attendees) {
 				for (const attendee of doc.google_calendar_event.attendees) {
+					// Skip if we've already processed this email
+					if (attendee.email && processedEmails.has(attendee.email)) {
+						continue;
+					}
+					
 					if (attendee.displayName && !attendees.includes(attendee.displayName)) {
 						attendees.push(attendee.displayName);
+						if (attendee.email) {
+							processedEmails.add(attendee.email);
+						}
 					} else if (attendee.email && !attendees.some(name => name.includes(attendee.email.split('@')[0]))) {
 						const emailName = attendee.email.split('@')[0].replace(/[._]/g, ' ');
 						attendees.push(emailName);
+						processedEmails.add(attendee.email);
 					}
 				}
 			}
@@ -771,16 +840,166 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 		return tags;
 	}
 
-	async updateExistingNoteAttendees(file, doc) {
+	extractFolderNames(doc) {
+		// Note: Folder functionality is currently disabled as folder information 
+		// is not available in the Granola API response. This method is kept for future use.
+		return [];
+		
+		/* 
+		// Code preserved for when Granola API includes folder information
+		const folderNames = [];
+		
+		try {
+			// Handle single workspace_id
+			if (doc.workspace_id && this.workspaces) {
+				const folderName = this.findWorkspaceName(doc.workspace_id);
+				if (folderName) {
+					folderNames.push(folderName);
+				}
+			}
+			
+			// Handle multiple workspace IDs (if they exist)
+			if (doc.workspace_ids && Array.isArray(doc.workspace_ids) && this.workspaces) {
+				doc.workspace_ids.forEach(wsId => {
+					const folderName = this.findWorkspaceName(wsId);
+					if (folderName && !folderNames.includes(folderName)) {
+						folderNames.push(folderName);
+					}
+				});
+			}
+			
+			// Handle list IDs (single and multiple)
+			if (doc.list_id && this.workspaces) {
+				const folderName = this.findWorkspaceName(doc.list_id);
+				if (folderName && !folderNames.includes(folderName)) {
+					folderNames.push(folderName);
+				}
+			}
+			
+			if (doc.list_ids && Array.isArray(doc.list_ids) && this.workspaces) {
+				doc.list_ids.forEach(listId => {
+					const folderName = this.findWorkspaceName(listId);
+					if (folderName && !folderNames.includes(folderName)) {
+						folderNames.push(folderName);
+					}
+				});
+			}
+			
+			// Check legacy folder properties
+			const legacyFields = ['folder_name', 'folder', 'directory'];
+			legacyFields.forEach(field => {
+				if (doc[field] && !folderNames.includes(doc[field])) {
+					folderNames.push(doc[field]);
+				}
+			});
+			
+			return folderNames;
+		} catch (error) {
+			console.error('Error extracting folder names:', error);
+			return [];
+		}
+		*/
+	}
+
+	findWorkspaceName(workspaceId) {
+		if (!this.workspaces || !workspaceId) {
+			return null;
+		}
+		
+		try {
+			// Try different possible structures for workspaces response
+			if (Array.isArray(this.workspaces)) {
+				const workspace = this.workspaces.find(ws => ws.id === workspaceId);
+				if (workspace && workspace.name) {
+					console.log('Found workspace name:', workspace.name, 'for ID:', workspaceId);
+					return workspace.name;
+				}
+			} else if (this.workspaces.workspaces && Array.isArray(this.workspaces.workspaces)) {
+				const workspace = this.workspaces.workspaces.find(ws => ws.id === workspaceId);
+				if (workspace && workspace.name) {
+					console.log('Found workspace name:', workspace.name, 'for ID:', workspaceId);
+					return workspace.name;
+				}
+			} else if (this.workspaces.lists && Array.isArray(this.workspaces.lists)) {
+				const list = this.workspaces.lists.find(l => l.id === workspaceId);
+				if (list && list.name) {
+					console.log('Found list name:', list.name, 'for ID:', workspaceId);
+					return list.name;
+				}
+			}
+			
+			console.log('Could not find matching workspace/list for ID:', workspaceId);
+			return null;
+		} catch (error) {
+			console.error('Error finding workspace name:', error);
+			return null;
+		}
+	}
+
+	generateFolderTags(folderNames) {
+		if (!this.settings.includeFolderTags || !folderNames || folderNames.length === 0) {
+			return [];
+		}
+		
+		try {
+			const tags = [];
+			
+			for (const folderName of folderNames) {
+				if (!folderName) continue;
+				
+				// Convert folder name to valid tag format
+				// Remove special characters, replace spaces with hyphens, convert to lowercase
+				let tag = folderName
+					.replace(/[^\w\s-]/g, '') // Remove special chars except spaces and hyphens
+					.trim()
+					.replace(/\s+/g, '-') // Replace spaces with hyphens
+					.toLowerCase();
+				
+				// Add folder/ prefix for better organization
+				tag = 'folder/' + tag;
+				
+				if (tag && tag !== 'folder/' && !tags.includes(tag)) {
+					tags.push(tag);
+				}
+			}
+			
+			return tags;
+		} catch (error) {
+			console.error('Error generating folder tags:', error);
+			return [];
+		}
+	}
+
+	generateGranolaUrl(docId) {
+		if (!this.settings.includeGranolaUrl || !docId) {
+			return null;
+		}
+		
+		try {
+			// Construct the Granola app URL using the document ID
+			return `https://app.granola.ai/documents/${docId}`;
+		} catch (error) {
+			console.error('Error generating Granola URL:', error);
+			return null;
+		}
+	}
+
+	async updateExistingNoteMetadata(file, doc) {
 		try {
 			// Read existing note content
 			const content = await this.app.vault.read(file);
 			
-			// Extract attendee information
+			// Extract all metadata
 			const attendeeNames = this.extractAttendeeNames(doc);
 			const attendeeTags = this.generateAttendeeTags(attendeeNames);
+			const folderNames = this.extractFolderNames(doc);
+			const folderTags = this.generateFolderTags(folderNames);
+			const granolaUrl = this.generateGranolaUrl(doc.id);
 			
-			console.log('Updating attendee tags for existing note. Names:', attendeeNames, 'Tags:', attendeeTags);
+			console.log('Updating metadata for existing note:');
+			console.log('  Attendee Names:', attendeeNames);
+			console.log('  Attendee Tags:', attendeeTags);
+			console.log('  Granola URL:', granolaUrl);
 			
 			// Parse existing frontmatter
 			const frontmatterMatch = content.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
@@ -805,8 +1024,8 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 					frontmatterData.tags = [];
 				} else if (line.startsWith('  - ') && inTagsSection) {
 					const tag = line.substring(4).trim();
-					if (!tag.startsWith('person/')) {
-						// Keep non-person tags
+					if (!tag.startsWith('person/') && !tag.startsWith('folder/')) {
+						// Keep tags that are not person or folder tags
 						frontmatterData.tags.push(tag);
 					}
 				} else if (line.includes(':') && !line.startsWith('  ')) {
@@ -817,16 +1036,24 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 				}
 			}
 			
-			// Add attendee tags to existing tags
+			// Add new tags to existing tags
 			if (!frontmatterData.tags) {
 				frontmatterData.tags = [];
 			}
 			
-			// Add new attendee tags
-			for (const tag of attendeeTags) {
+			// Combine attendee and folder tags
+			const newTags = [...attendeeTags, ...folderTags];
+			
+			// Add new tags
+			for (const tag of newTags) {
 				if (!frontmatterData.tags.includes(tag)) {
 					frontmatterData.tags.push(tag);
 				}
+			}
+			
+			// Update or add Granola URL if enabled
+			if (granolaUrl) {
+				frontmatterData.granola_url = '"' + granolaUrl + '"';
 			}
 			
 			// Rebuild frontmatter
@@ -847,7 +1074,7 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 			const updatedContent = newFrontmatter + noteContent;
 			await this.app.vault.modify(file, updatedContent);
 			
-			console.log('Successfully updated attendee tags for existing note:', file.path);
+			console.log('Successfully updated tags for existing note:', file.path);
 			
 		} catch (error) {
 			console.error('Error updating attendee tags for existing note:', error);
@@ -950,29 +1177,6 @@ class GranolaSyncSettingTab extends obsidian.PluginSettingTab {
 			});
 
 		new obsidian.Setting(containerEl)
-			.setName('Daily Note Integration')
-			.setDesc('Add todays meetings to your Daily Note')
-			.addToggle(toggle => {
-				toggle.setValue(this.plugin.settings.enableDailyNoteIntegration);
-				toggle.onChange(async (value) => {
-					this.plugin.settings.enableDailyNoteIntegration = value;
-					await this.plugin.saveSettings();
-				});
-			});
-
-		new obsidian.Setting(containerEl)
-			.setName('Daily Note Section Name')
-			.setDesc('The heading name for the Granola meetings section in your Daily Note')
-			.addText(text => {
-				text.setPlaceholder('## Granola Meetings');
-				text.setValue(this.plugin.settings.dailyNoteSectionName);
-				text.onChange(async (value) => {
-					this.plugin.settings.dailyNoteSectionName = value;
-					await this.plugin.saveSettings();
-				});
-			});
-
-		new obsidian.Setting(containerEl)
 			.setName('Skip Existing Notes')
 			.setDesc('When enabled, notes that already exist will not be updated during sync. This preserves any manual tags, summaries, or other additions you\'ve made.')
 			.addToggle(toggle => {
@@ -982,6 +1186,9 @@ class GranolaSyncSettingTab extends obsidian.PluginSettingTab {
 					await this.plugin.saveSettings();
 				});
 			});
+
+		// Create a heading for metadata settings
+		containerEl.createEl('h3', { text: 'Note Metadata & Tags' });
 
 		new obsidian.Setting(containerEl)
 			.setName('Include Attendee Tags')
@@ -1016,6 +1223,58 @@ class GranolaSyncSettingTab extends obsidian.PluginSettingTab {
 					await this.plugin.saveSettings();
 				});
 			});
+
+		// Note: Folder tags setting is temporarily hidden as folder information is not yet available in Granola API
+		// new obsidian.Setting(containerEl)
+		// 	.setName('Include Folder Tags')
+		// 	.setDesc('Add Granola folder/list names as tags in the frontmatter of each note. Supports multiple folders per note (e.g., folder/test-folder, folder/project-alpha)')
+		// 	.addToggle(toggle => {
+		// 		toggle.setValue(this.plugin.settings.includeFolderTags);
+		// 		toggle.onChange(async (value) => {
+		// 			this.plugin.settings.includeFolderTags = value;
+		// 			await this.plugin.saveSettings();
+		// 		});
+		// 	});
+
+		new obsidian.Setting(containerEl)
+			.setName('Include Granola URL')
+			.setDesc('Add a link back to the original Granola note in the frontmatter (e.g., granola_url: "https://app.granola.ai/documents/...")')
+			.addToggle(toggle => {
+				toggle.setValue(this.plugin.settings.includeGranolaUrl);
+				toggle.onChange(async (value) => {
+					this.plugin.settings.includeGranolaUrl = value;
+					await this.plugin.saveSettings();
+				});
+			});
+
+		// Create a heading for daily note integration
+		containerEl.createEl('h3', { text: 'Daily Note Integration' });
+
+		new obsidian.Setting(containerEl)
+			.setName('Daily Note Integration')
+			.setDesc('Add todays meetings to your Daily Note')
+			.addToggle(toggle => {
+				toggle.setValue(this.plugin.settings.enableDailyNoteIntegration);
+				toggle.onChange(async (value) => {
+					this.plugin.settings.enableDailyNoteIntegration = value;
+					await this.plugin.saveSettings();
+				});
+			});
+
+		new obsidian.Setting(containerEl)
+			.setName('Daily Note Section Name')
+			.setDesc('The heading name for the Granola meetings section in your Daily Note')
+			.addText(text => {
+				text.setPlaceholder('## Granola Meetings');
+				text.setValue(this.plugin.settings.dailyNoteSectionName);
+				text.onChange(async (value) => {
+					this.plugin.settings.dailyNoteSectionName = value;
+					await this.plugin.saveSettings();
+				});
+			});
+
+		// Create a heading for file organization settings
+		containerEl.createEl('h3', { text: 'File Organization' });
 
 		new obsidian.Setting(containerEl)
 			.setName('Sync Directory')

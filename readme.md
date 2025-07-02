@@ -2,7 +2,7 @@
 
 An Obsidian plugin that automatically syncs your [Granola AI](https://granola.ai) meeting notes to your Obsidian vault with full customization options and real-time status updates.
 
-![Granola Sync Plugin](https://img.shields.io/badge/Obsidian-Plugin-purple) ![Version](https://img.shields.io/badge/version-1.2.2-blue) ![License](https://img.shields.io/badge/license-MIT-green)
+![Granola Sync Plugin](https://img.shields.io/badge/Obsidian-Plugin-purple) ![Version](https://img.shields.io/badge/version-1.3.0-blue) ![License](https://img.shields.io/badge/license-MIT-green)
 
 ![Granola Sync](https://i.imgur.com/EmFRYTO.png)
 
@@ -17,6 +17,7 @@ An Obsidian plugin that automatically syncs your [Granola AI](https://granola.ai
 - **🔧 Custom Auth Path**: Override the default Granola credentials location
 - **🗓️ Daily Note Integration**: Automatically add today's meetings to your Daily Note with times and links
 - **🏷️ Attendee Tagging**: Automatically extract meeting attendees and add them as organized tags (e.g., `person/john-smith`)
+- **🔗 Granola URL Links**: Add direct links back to original Granola notes in frontmatter for easy access
 - **🔧 Smart Filtering**: Exclude your own name from attendee tags with configurable settings
 - **🛡️ Preserve Manual Additions**: Option to skip updating existing notes, preserving your tags, summaries, and custom properties
 - **✨ Rich Metadata**: Includes frontmatter with creation/update dates and Granola IDs
@@ -106,6 +107,26 @@ Automatically extract meeting attendees from Granola and add them as organized t
 - **Smart filtering**: Your name is automatically excluded from tags
 - **Retroactive updates**: Can update existing notes with attendee tags while preserving content
 
+### Granola URL Integration
+
+Add direct links back to your original Granola notes for seamless workflow integration.
+
+#### Setting:
+- **Include Granola URL**: Enable/disable URL links in frontmatter (disabled by default)
+
+#### How it works:
+When enabled, each synced note includes a `granola_url` field in the frontmatter that links directly to the original note in the Granola web app:
+
+```yaml
+granola_url: "https://app.granola.ai/documents/abc123def456"
+```
+
+#### Benefits:
+- **Quick access**: One-click to open the original note in Granola
+- **Cross-platform**: Works with both desktop and web versions of Granola
+- **Always current**: URL automatically generated from document ID
+- **Non-intrusive**: Appears cleanly in frontmatter without cluttering note content
+
 ### Auto-Sync Frequency
 Choose how often to automatically sync:
 - Never (manual only)
@@ -194,6 +215,7 @@ Synced notes include rich frontmatter with metadata:
 ---
 granola_id: abc123def456
 title: "Team Standup Meeting"
+granola_url: "https://app.granola.ai/documents/abc123def456"
 created_at: 2025-06-06T14:30:00.000Z
 updated_at: 2025-06-06T15:45:00.000Z
 tags:
