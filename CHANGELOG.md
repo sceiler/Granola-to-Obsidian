@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.1]
+### Fixed
+- **Granola URL format**: Fixed incorrect URL format from `https://app.granola.ai/documents/{id}` to correct `https://notes.granola.ai/d/{id}`
+- Updated documentation examples to reflect correct URL format
+
 ## [1.3.0]
 ### Added
 - **Granola URL integration**: Add links back to original Granola notes in frontmatter (`granola_url`)

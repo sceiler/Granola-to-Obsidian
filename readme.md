@@ -2,7 +2,7 @@
 
 An Obsidian plugin that automatically syncs your [Granola AI](https://granola.ai) meeting notes to your Obsidian vault with full customization options and real-time status updates.
 
-![Granola Sync Plugin](https://img.shields.io/badge/Obsidian-Plugin-purple) ![Version](https://img.shields.io/badge/version-1.3.0-blue) ![License](https://img.shields.io/badge/license-MIT-green)
+![Granola Sync Plugin](https://img.shields.io/badge/Obsidian-Plugin-purple) ![Version](https://img.shields.io/badge/version-1.3.1-blue) ![License](https://img.shields.io/badge/license-MIT-green)
 
 ![Granola Sync](https://i.imgur.com/EmFRYTO.png)
 
@@ -118,7 +118,7 @@ Add direct links back to your original Granola notes for seamless workflow integ
 When enabled, each synced note includes a `granola_url` field in the frontmatter that links directly to the original note in the Granola web app:
 
 ```yaml
-granola_url: "https://app.granola.ai/documents/abc123def456"
+granola_url: "https://notes.granola.ai/d/abc123def456"
 ```
 
 #### Benefits:
@@ -215,7 +215,7 @@ Synced notes include rich frontmatter with metadata:
 ---
 granola_id: abc123def456
 title: "Team Standup Meeting"
-granola_url: "https://app.granola.ai/documents/abc123def456"
+granola_url: "https://notes.granola.ai/d/abc123def456"
 created_at: 2025-06-06T14:30:00.000Z
 updated_at: 2025-06-06T15:45:00.000Z
 tags:

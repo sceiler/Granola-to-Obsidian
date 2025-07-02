@@ -976,8 +976,8 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 		}
 		
 		try {
-			// Construct the Granola app URL using the document ID
-			return `https://app.granola.ai/documents/${docId}`;
+			// Construct the Granola notes URL using the correct format
+			return `https://notes.granola.ai/d/${docId}`;
 		} catch (error) {
 			console.error('Error generating Granola URL:', error);
 			return null;
@@ -1238,7 +1238,7 @@ class GranolaSyncSettingTab extends obsidian.PluginSettingTab {
 
 		new obsidian.Setting(containerEl)
 			.setName('Include Granola URL')
-			.setDesc('Add a link back to the original Granola note in the frontmatter (e.g., granola_url: "https://app.granola.ai/documents/...")')
+			.setDesc('Add a link back to the original Granola note in the frontmatter (e.g., granola_url: "https://notes.granola.ai/d/...")')
 			.addToggle(toggle => {
 				toggle.setValue(this.plugin.settings.includeGranolaUrl);
 				toggle.onChange(async (value) => {
