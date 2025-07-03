@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.4.0]
+### Added
+- **Customizable Attendee Tag Structure**: New setting to customize how attendee tags are formatted and organized
+- **Tag Template System**: Use `{name}` placeholder to create custom tag hierarchies (e.g., `people/{name}`, `meeting-attendees/{name}`)
+- **Flexible Tag Organization**: Allows users to control their tag hierarchy and reduce root-level tag clutter in Obsidian
+
+### Enhanced
+- **Attendee Tag Generation**: Now uses customizable templates instead of hardcoded `person/` prefix
+- **Tag Validation**: Automatic cleanup of invalid tag structures (double slashes, leading/trailing slashes)
+- **Settings UI**: Added new "Attendee Tag Template" setting with helpful examples and validation
+
 ## [1.3.2]
 ### Fixed
 - **Nested bullet preservation**: Fixed issue where sub-bullets from Granola were being flattened instead of maintaining proper indentation in Obsidian

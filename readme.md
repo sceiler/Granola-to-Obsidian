@@ -2,7 +2,7 @@
 
 An Obsidian plugin that automatically syncs your [Granola AI](https://granola.ai) meeting notes to your Obsidian vault with full customization options and real-time status updates.
 
-![Granola Sync Plugin](https://img.shields.io/badge/Obsidian-Plugin-purple) ![Version](https://img.shields.io/badge/version-1.3.2-blue) ![License](https://img.shields.io/badge/license-MIT-green)
+![Granola Sync Plugin](https://img.shields.io/badge/Obsidian-Plugin-purple) ![Version](https://img.shields.io/badge/version-1.4.0-blue) ![License](https://img.shields.io/badge/license-MIT-green)
 
 ![Granola Sync](https://i.imgur.com/EmFRYTO.png)
 
@@ -95,11 +95,17 @@ Automatically extract meeting attendees from Granola and add them as organized t
 - **Include Attendee Tags**: Enable/disable attendee tagging (disabled by default)
 - **Exclude My Name from Tags**: Remove your own name from attendee tags (recommended)
 - **My Name**: Set your name as it appears in Granola meetings for filtering
+- **Attendee Tag Template**: Customize the tag structure using `{name}` placeholder
 
-#### Tag Format:
-- Attendees are converted to clean, organized tags with the `person/` prefix
-- Special characters are removed, spaces become hyphens, all lowercase
-- Example: "John Smith" → `person/john-smith`
+#### Tag Format & Customization:
+- **Default format**: `person/{name}` (e.g., "John Smith" → `person/john-smith`)
+- **Customizable structure**: Use the template setting to organize tags your way
+- **Template examples**:
+  - `people/{name}` → `people/john-smith` (group under "people")
+  - `meeting-attendees/{name}` → `meeting-attendees/john-smith` (descriptive grouping)
+  - `attendees/{name}` → `attendees/john-smith` (simple grouping)
+  - `contacts/work/{name}` → `contacts/work/john-smith` (multi-level hierarchy)
+- **Name processing**: Special characters removed, spaces become hyphens, all lowercase
 
 #### Benefits:
 - **Easy searching**: Find all meetings with specific people using `#person/john-smith`
@@ -219,9 +225,9 @@ granola_url: "https://notes.granola.ai/d/abc123def456"
 created_at: 2025-06-06T14:30:00.000Z
 updated_at: 2025-06-06T15:45:00.000Z
 tags:
-  - person/john-smith
-  - person/sarah-jones
-  - person/mike-wilson
+  - people/john-smith
+  - people/sarah-jones
+  - people/mike-wilson
 ---
 
 # Team Standup Meeting

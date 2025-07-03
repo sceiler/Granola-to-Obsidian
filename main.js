@@ -28,7 +28,8 @@ const DEFAULT_SETTINGS = {
 	excludeMyNameFromTags: true,
 	myName: 'Danny McClelland',
 	includeFolderTags: false,
-	includeGranolaUrl: false
+	includeGranolaUrl: false,
+	attendeeTagTemplate: 'person/{name}'
 };
 
 class GranolaSyncPlugin extends obsidian.Plugin {
@@ -883,14 +884,17 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 			
 			// Convert name to valid tag format
 			// Remove special characters, replace spaces with hyphens, convert to lowercase
-			let tag = attendee
+			let cleanName = attendee
 				.replace(/[^\w\s-]/g, '') // Remove special chars except spaces and hyphens
 				.trim()
 				.replace(/\s+/g, '-') // Replace spaces with hyphens
 				.toLowerCase();
 			
-			// Add person/ prefix for better organization
-			tag = 'person/' + tag;
+			// Use the customizable tag template
+			let tag = this.settings.attendeeTagTemplate.replace('{name}', cleanName);
+			
+			// Ensure the tag is valid (no double slashes, etc.)
+			tag = tag.replace(/\/+/g, '/').replace(/^\/|\/$/g, '');
 			
 			if (tag && !tags.includes(tag)) {
 				tags.push(tag);
@@ -1280,6 +1284,22 @@ class GranolaSyncSettingTab extends obsidian.PluginSettingTab {
 				text.setValue(this.plugin.settings.myName);
 				text.onChange(async (value) => {
 					this.plugin.settings.myName = value;
+					await this.plugin.saveSettings();
+				});
+			});
+
+		new obsidian.Setting(containerEl)
+			.setName('Attendee Tag Template')
+			.setDesc('Customize the structure of attendee tags. Use {name} as placeholder for the attendee name. Examples: "person/{name}", "people/{name}", "meeting-attendees/{name}"')
+			.addText(text => {
+				text.setPlaceholder('person/{name}');
+				text.setValue(this.plugin.settings.attendeeTagTemplate);
+				text.onChange(async (value) => {
+					// Validate the template has {name} placeholder
+					if (!value.includes('{name}')) {
+						new obsidian.Notice('Warning: Tag template should include {name} placeholder');
+					}
+					this.plugin.settings.attendeeTagTemplate = value || 'person/{name}';
 					await this.plugin.saveSettings();
 				});
 			});
