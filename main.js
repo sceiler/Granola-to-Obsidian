@@ -296,7 +296,7 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 			return '';
 		}
 
-		const processNode = (node) => {
+		const processNode = (node, indentLevel = 0) => {
 			if (!node || typeof node !== 'object') {
 				return '';
 			}
@@ -307,29 +307,89 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 
 			if (nodeType === 'heading') {
 				const level = node.attrs && node.attrs.level ? node.attrs.level : 1;
-				const headingText = nodeContent.map(processNode).join('');
+				const headingText = nodeContent.map(child => processNode(child, indentLevel)).join('');
 				return '#'.repeat(level) + ' ' + headingText + '\n\n';
 			} else if (nodeType === 'paragraph') {
-				const paraText = nodeContent.map(processNode).join('');
+				const paraText = nodeContent.map(child => processNode(child, indentLevel)).join('');
 				return paraText + '\n\n';
 			} else if (nodeType === 'bulletList') {
 				const items = [];
 				for (let i = 0; i < nodeContent.length; i++) {
 					const item = nodeContent[i];
 					if (item.type === 'listItem') {
-						const itemContent = (item.content || []).map(processNode).join('').trim();
-						items.push('- ' + itemContent);
+						const processedItem = this.processListItem(item, indentLevel);
+						if (processedItem) {
+							items.push(processedItem);
+						}
 					}
 				}
 				return items.join('\n') + '\n\n';
 			} else if (nodeType === 'text') {
 				return text;
 			} else {
-				return nodeContent.map(processNode).join('');
+				return nodeContent.map(child => processNode(child, indentLevel)).join('');
 			}
 		};
 
 		return processNode(content);
+	}
+
+	processListItem(listItem, indentLevel = 0) {
+		if (!listItem || !listItem.content) {
+			return '';
+		}
+
+		const indent = '  '.repeat(indentLevel); // 2 spaces per indent level
+		let itemText = '';
+		let hasNestedLists = false;
+
+		for (const child of listItem.content) {
+			if (child.type === 'paragraph') {
+				// Process paragraph content for the main bullet text
+				const paraText = (child.content || []).map(node => {
+					if (node.type === 'text') {
+						return node.text || '';
+					}
+					return '';
+				}).join('').trim();
+				if (paraText) {
+					itemText += paraText;
+				}
+			} else if (child.type === 'bulletList') {
+				// Handle nested bullet lists
+				hasNestedLists = true;
+				const nestedItems = [];
+				for (const nestedItem of child.content || []) {
+					if (nestedItem.type === 'listItem') {
+						const nestedProcessed = this.processListItem(nestedItem, indentLevel + 1);
+						if (nestedProcessed) {
+							nestedItems.push(nestedProcessed);
+						}
+					}
+				}
+				if (nestedItems.length > 0) {
+					itemText += '\n' + nestedItems.join('\n');
+				}
+			}
+		}
+
+		if (!itemText.trim()) {
+			return '';
+		}
+
+		// Format the main bullet point
+		const mainBullet = indent + '- ' + itemText.split('\n')[0];
+		
+		// If there are nested items, append them
+		if (hasNestedLists) {
+			const lines = itemText.split('\n');
+			if (lines.length > 1) {
+				const nestedLines = lines.slice(1).join('\n');
+				return mainBullet + '\n' + nestedLines;
+			}
+		}
+
+		return mainBullet;
 	}
 
 	formatDate(date, format) {

@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.2]
+### Fixed
+- **Nested bullet preservation**: Fixed issue where sub-bullets from Granola were being flattened instead of maintaining proper indentation in Obsidian
+- **List structure**: Improved ProseMirror to Markdown conversion to properly handle nested bullet lists with correct indentation
+- **Bullet formatting**: Sub-bullets now display with proper 2-space indentation per nesting level
+
 ## [1.3.1]
 ### Fixed
 - **Granola URL format**: Fixed incorrect URL format from `https://app.granola.ai/documents/{id}` to correct `https://notes.granola.ai/d/{id}`
