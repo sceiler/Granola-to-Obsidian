@@ -2,6 +2,26 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.5.0]
+### Added
+- **🧪 Experimental: Search Scope for Existing Notes**: Control where the plugin searches for existing notes when checking for duplicates by granola-id
+- **Flexible Search Options**: Choose between "Sync Directory Only" (default), "Entire Vault", or "Specific Folders"
+- **Duplicate Prevention Tools**: Added "Find Duplicate Notes" button to scan for and identify existing duplicates
+- **Auto-Sync Safety**: New "Re-enable Auto-Sync" button to safely restart auto-sync after testing new settings
+- **Enhanced Settings Safety**: Search scope settings now save without triggering auto-sync to prevent accidental duplicates
+
+### Enhanced
+- **Experimental Features Section**: Clear UI separation for experimental features with backup warnings
+- **User Safety**: Prominent warnings about backing up vault before using experimental features
+- **Duplicate Management**: Added comprehensive duplicate detection and management tools
+- **Error Prevention**: Auto-sync temporarily disabled when changing search scope settings
+
+### Technical
+- **Recursive Folder Search**: Added support for searching all markdown files within specified folders and subfolders
+- **Safe Settings Management**: New `saveSettingsWithoutSync()` method to prevent unwanted auto-sync triggers
+- **Validation Improvements**: Enhanced folder path validation with user-friendly error messages
+- **Search Scope Flexibility**: Infrastructure for different search strategies based on user needs
+
 ## [1.4.0]
 ### Added
 - **Customizable Attendee Tag Structure**: New setting to customize how attendee tags are formatted and organized

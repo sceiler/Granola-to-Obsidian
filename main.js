@@ -29,7 +29,9 @@ const DEFAULT_SETTINGS = {
 	myName: 'Danny McClelland',
 	includeFolderTags: false,
 	includeGranolaUrl: false,
-	attendeeTagTemplate: 'person/{name}'
+	attendeeTagTemplate: 'person/{name}',
+	existingNoteSearchScope: 'syncDirectory', // 'syncDirectory', 'entireVault', 'specificFolders'
+	specificSearchFolders: [] // Array of folder paths to search in when existingNoteSearchScope is 'specificFolders'
 };
 
 class GranolaSyncPlugin extends obsidian.Plugin {
@@ -77,6 +79,15 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 		try {
 			await this.saveData(this.settings);
 			this.setupAutoSync();
+			this.updateRibbonIcon();
+		} catch (error) {
+			console.error('Failed to save settings:', error);
+		}
+	}
+
+	async saveSettingsWithoutSync() {
+		try {
+			await this.saveData(this.settings);
 			this.updateRibbonIcon();
 		} catch (error) {
 			console.error('Failed to save settings:', error);
@@ -464,15 +475,60 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 		return filename;
 	}
 
+	/**
+	 * Finds an existing note by its Granola ID based on the configured search scope.
+	 * 
+	 * Search scope options:
+	 * - 'syncDirectory' (default): Only searches within the configured sync directory
+	 * - 'entireVault': Searches all markdown files in the vault
+	 * - 'specificFolders': Searches within user-specified folders (including subfolders)
+	 * 
+	 * This allows users to move their Granola notes to different folders while still
+	 * avoiding duplicates when "Skip Existing Notes" is enabled.
+	 * 
+	 * @param {string} granolaId - The Granola ID to search for
+	 * @returns {TFile|null} The found file or null if not found
+	 */
 	async findExistingNoteByGranolaId(granolaId) {
-		const folder = this.app.vault.getAbstractFileByPath(this.settings.syncDirectory);
-		if (!folder || !(folder instanceof obsidian.TFolder)) {
-			return null;
+		let filesToSearch = [];
+
+		if (this.settings.existingNoteSearchScope === 'entireVault') {
+			// Search all markdown files in the vault
+			filesToSearch = this.app.vault.getMarkdownFiles();
+			console.log('Searching for existing note with granola-id', granolaId, 'across entire vault (' + filesToSearch.length + ' files)');
+		} else if (this.settings.existingNoteSearchScope === 'specificFolders') {
+			// Search in specific folders
+			console.log('Searching for existing note with granola-id', granolaId, 'in specific folders:', this.settings.specificSearchFolders);
+			
+			if (this.settings.specificSearchFolders.length === 0) {
+				console.log('Warning: No specific folders configured for search. No files will be searched.');
+				return null;
+			}
+			
+			for (const folderPath of this.settings.specificSearchFolders) {
+				const folder = this.app.vault.getAbstractFileByPath(folderPath);
+				if (folder && folder instanceof obsidian.TFolder) {
+					const folderFiles = this.getAllMarkdownFilesInFolder(folder);
+					filesToSearch = filesToSearch.concat(folderFiles);
+					console.log('Found', folderFiles.length, 'files in folder:', folderPath);
+				} else {
+					console.log('Folder not found or not a folder:', folderPath);
+				}
+			}
+			console.log('Total files to search:', filesToSearch.length);
+		} else {
+			// Default: search only in sync directory
+			console.log('Searching for existing note with granola-id', granolaId, 'in sync directory only:', this.settings.syncDirectory);
+			const folder = this.app.vault.getAbstractFileByPath(this.settings.syncDirectory);
+			if (!folder || !(folder instanceof obsidian.TFolder)) {
+				console.log('Sync directory not found:', this.settings.syncDirectory);
+				return null;
+			}
+			filesToSearch = folder.children.filter(file => file instanceof obsidian.TFile && file.extension === 'md');
+			console.log('Found', filesToSearch.length, 'files in sync directory');
 		}
 
-		const files = folder.children.filter(file => file instanceof obsidian.TFile && file.extension === 'md');
-		
-		for (const file of files) {
+		for (const file of filesToSearch) {
 			try {
 				const content = await this.app.vault.read(file);
 				const frontmatterMatch = content.match(/^---\n([\s\S]*?)\n---/);
@@ -482,6 +538,7 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 					const granolaIdMatch = frontmatter.match(/granola_id:\s*(.+)$/m);
 					
 					if (granolaIdMatch && granolaIdMatch[1].trim() === granolaId) {
+						console.log('Found existing note with granola-id', granolaId, 'at:', file.path);
 						return file;
 					}
 				}
@@ -490,7 +547,125 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 			}
 		}
 		
+		console.log('No existing note found with granola-id:', granolaId);
 		return null;
+	}
+
+	getAllMarkdownFilesInFolder(folder) {
+		let files = [];
+		
+		// Safety check - ensure folder exists and has children
+		if (!folder || !folder.children) {
+			return files;
+		}
+		
+		// Add direct children that are markdown files
+		const directFiles = folder.children.filter(file => file instanceof obsidian.TFile && file.extension === 'md');
+		files = files.concat(directFiles);
+		
+		// Recursively add files from subfolders
+		const subfolders = folder.children.filter(child => child instanceof obsidian.TFolder);
+		for (const subfolder of subfolders) {
+			const subfolderFiles = this.getAllMarkdownFilesInFolder(subfolder);
+			files = files.concat(subfolderFiles);
+		}
+		
+		return files;
+	}
+
+	/**
+	 * Gets all folder paths in the vault (useful for future UI improvements)
+	 * @returns {string[]} Array of folder paths
+	 */
+	getAllFolderPaths() {
+		const folders = [];
+		const allFolders = this.app.vault.getAllLoadedFiles().filter(file => file instanceof obsidian.TFolder);
+		
+		for (const folder of allFolders) {
+			folders.push(folder.path);
+		}
+		
+		return folders.sort();
+	}
+
+	async findDuplicateNotes() {
+		try {
+			console.log('Searching for duplicate Granola notes...');
+			
+			// Get all markdown files in the vault
+			const allFiles = this.app.vault.getMarkdownFiles();
+			const granolaFiles = {};
+			const duplicates = [];
+			
+			// Check each file for granola-id
+			for (const file of allFiles) {
+				try {
+					const content = await this.app.vault.read(file);
+					const frontmatterMatch = content.match(/^---\n([\s\S]*?)\n---/);
+					
+					if (frontmatterMatch) {
+						const frontmatter = frontmatterMatch[1];
+						const granolaIdMatch = frontmatter.match(/granola_id:\s*(.+)$/m);
+						
+						if (granolaIdMatch) {
+							const granolaId = granolaIdMatch[1].trim();
+							
+							if (granolaFiles[granolaId]) {
+								// Found a duplicate
+								if (!duplicates.some(d => d.granolaId === granolaId)) {
+									duplicates.push({
+										granolaId: granolaId,
+										files: [granolaFiles[granolaId], file]
+									});
+								} else {
+									// Add to existing duplicate group
+									const duplicate = duplicates.find(d => d.granolaId === granolaId);
+									duplicate.files.push(file);
+								}
+							} else {
+								granolaFiles[granolaId] = file;
+							}
+						}
+					}
+				} catch (error) {
+					console.error('Error reading file:', file.path, error);
+				}
+			}
+			
+			if (duplicates.length === 0) {
+				new obsidian.Notice('No duplicate Granola notes found! 🎉');
+			} else {
+				console.log('Found', duplicates.length, 'sets of duplicate notes');
+				
+				// Create a summary message
+				let message = `Found ${duplicates.length} set(s) of duplicate Granola notes:\n\n`;
+				
+				for (const duplicate of duplicates) {
+					message += `Granola ID: ${duplicate.granolaId}\n`;
+					for (const file of duplicate.files) {
+						message += `  • ${file.path}\n`;
+					}
+					message += '\n';
+				}
+				
+				message += 'Check the console for full details. You can manually delete the duplicates you don\'t want to keep.';
+				
+				new obsidian.Notice(message, 10000); // Show for 10 seconds
+				
+				// Also log detailed information to console
+				console.log('Duplicate Granola notes found:');
+				for (const duplicate of duplicates) {
+					console.log(`Granola ID: ${duplicate.granolaId}`);
+					for (const file of duplicate.files) {
+						console.log(`  - ${file.path}`);
+					}
+				}
+			}
+			
+		} catch (error) {
+			console.error('Error finding duplicate notes:', error);
+			new obsidian.Notice('Error finding duplicate notes. Check console for details.');
+		}
 	}
 
 	async processDocument(doc) {
@@ -1251,6 +1426,95 @@ class GranolaSyncSettingTab extends obsidian.PluginSettingTab {
 				});
 			});
 
+		// Create experimental section header
+		containerEl.createEl('h4', { text: '🧪 Experimental Features' });
+		
+		const experimentalWarning = containerEl.createEl('div', { cls: 'setting-item' });
+		experimentalWarning.createEl('div', { cls: 'setting-item-info' });
+		const warningNameEl = experimentalWarning.createEl('div', { cls: 'setting-item-name' });
+		warningNameEl.setText('⚠️ Please Backup Your Vault');
+		const warningDescEl = experimentalWarning.createEl('div', { cls: 'setting-item-description' });
+		warningDescEl.setText('The features below are experimental and may create duplicate notes if not used carefully. Please backup your vault before changing these settings.');
+		warningDescEl.style.color = 'var(--text-error)';
+		warningDescEl.style.fontSize = '0.9em';
+		warningDescEl.style.fontWeight = 'bold';
+
+		new obsidian.Setting(containerEl)
+			.setName('Search Scope for Existing Notes')
+			.setDesc('Choose where to search for existing notes when checking granola-id. "Sync Directory Only" (default) only checks the configured sync folder. "Entire Vault" allows you to move notes anywhere in your vault. "Specific Folders" lets you choose which folders to search.')
+			.addDropdown(dropdown => {
+				dropdown.addOption('syncDirectory', 'Sync Directory Only (Default)');
+				dropdown.addOption('entireVault', 'Entire Vault');
+				dropdown.addOption('specificFolders', 'Specific Folders');
+				
+				dropdown.setValue(this.plugin.settings.existingNoteSearchScope);
+				dropdown.onChange(async (value) => {
+					const oldValue = this.plugin.settings.existingNoteSearchScope;
+					this.plugin.settings.existingNoteSearchScope = value;
+					
+					// Save settings without triggering auto-sync to prevent duplicates
+					await this.plugin.saveSettingsWithoutSync();
+					
+					// Show warning if search scope changed
+					if (oldValue !== value) {
+						new obsidian.Notice('Search scope changed. Consider running a manual sync to test the new settings before relying on auto-sync.');
+					}
+					
+					this.display(); // Refresh the settings display
+				});
+			});
+
+		// Show folder selection only when 'specificFolders' is selected
+		if (this.plugin.settings.existingNoteSearchScope === 'specificFolders') {
+			new obsidian.Setting(containerEl)
+				.setName('Specific Search Folders')
+				.setDesc('Enter folder paths to search (one per line). Leave empty to search all folders.')
+				.addTextArea(text => {
+					text.setPlaceholder('Examples:\nMeetings\nProjects/Work\nDaily Notes');
+					text.setValue(this.plugin.settings.specificSearchFolders.join('\n'));
+					
+					// Save settings immediately on change (without validation and without auto-sync)
+					text.onChange(async (value) => {
+						const folders = value.split('\n').map(f => f.trim()).filter(f => f.length > 0);
+						this.plugin.settings.specificSearchFolders = folders;
+						await this.plugin.saveSettingsWithoutSync();
+					});
+					
+					// Validate only when user finishes editing (on blur)
+					text.inputEl.addEventListener('blur', () => {
+						const value = text.getValue();
+						const folders = value.split('\n').map(f => f.trim()).filter(f => f.length > 0);
+						
+						if (folders.length === 0) {
+							return; // Don't validate if no folders specified
+						}
+						
+						// Validate folder paths
+						const invalidFolders = [];
+						for (const folderPath of folders) {
+							const folder = this.app.vault.getAbstractFileByPath(folderPath);
+							if (!folder || !(folder instanceof obsidian.TFolder)) {
+								invalidFolders.push(folderPath);
+							}
+						}
+						
+						if (invalidFolders.length > 0) {
+							new obsidian.Notice('Warning: These folders do not exist: ' + invalidFolders.join(', '));
+						}
+					});
+				});
+		}
+
+		// Add info section about avoiding duplicates
+		const infoEl = containerEl.createEl('div', { cls: 'setting-item' });
+		infoEl.createEl('div', { cls: 'setting-item-info' });
+		const infoNameEl = infoEl.createEl('div', { cls: 'setting-item-name' });
+		infoNameEl.setText('⚠️ Avoiding Duplicates');
+		const infoDescEl = infoEl.createEl('div', { cls: 'setting-item-description' });
+		infoDescEl.setText('When changing search scope, existing notes in other locations won\'t be found and may be recreated. To avoid duplicates: 1) Move your existing notes to the new search location first, or 2) Use "Entire Vault" to search everywhere, or 3) Run a manual sync after changing settings to test before auto-sync runs.');
+		infoDescEl.style.color = 'var(--text-muted)';
+		infoDescEl.style.fontSize = '0.9em';
+
 		// Create a heading for metadata settings
 		containerEl.createEl('h3', { text: 'Note Metadata & Tags' });
 
@@ -1376,6 +1640,27 @@ class GranolaSyncSettingTab extends obsidian.PluginSettingTab {
 				button.setCta();
 				button.onClick(async () => {
 					await this.plugin.syncNotes();
+				});
+			});
+
+		new obsidian.Setting(containerEl)
+			.setName('Find Duplicate Notes')
+			.setDesc('Find and list notes with the same granola-id (helpful after changing search scope settings)')
+			.addButton(button => {
+				button.setButtonText('Find Duplicates');
+				button.onClick(async () => {
+					await this.plugin.findDuplicateNotes();
+				});
+			});
+
+		new obsidian.Setting(containerEl)
+			.setName('Re-enable Auto-Sync')
+			.setDesc('Re-enable auto-sync after testing new search scope settings (this will restart the auto-sync timer)')
+			.addButton(button => {
+				button.setButtonText('Re-enable Auto-Sync');
+				button.onClick(async () => {
+					await this.plugin.saveSettings(); // This will call setupAutoSync()
+					new obsidian.Notice('Auto-sync re-enabled with current settings');
 				});
 			});
 	}

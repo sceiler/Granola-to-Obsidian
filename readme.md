@@ -2,7 +2,7 @@
 
 An Obsidian plugin that automatically syncs your [Granola AI](https://granola.ai) meeting notes to your Obsidian vault with full customization options and real-time status updates.
 
-![Granola Sync Plugin](https://img.shields.io/badge/Obsidian-Plugin-purple) ![Version](https://img.shields.io/badge/version-1.4.0-blue) ![License](https://img.shields.io/badge/license-MIT-green)
+![Granola Sync Plugin](https://img.shields.io/badge/Obsidian-Plugin-purple) ![Version](https://img.shields.io/badge/version-1.5.0-blue) ![License](https://img.shields.io/badge/license-MIT-green)
 
 ![Granola Sync](https://i.imgur.com/EmFRYTO.png)
 
@@ -173,6 +173,48 @@ When enabled, notes that already exist in your vault will not be updated during 
 As long as you don't modify the `granola_id` field, the plugin will recognize them as the same note.
 
 **Note**: New notes from Granola will still be imported, but existing ones won't be overwritten.
+
+### 🧪 Experimental: Search Scope for Existing Notes
+
+**⚠️ Please backup your vault before using this feature!**
+
+This experimental feature allows you to control where the plugin searches for existing notes when checking for duplicates by `granola_id`.
+
+#### Search Scope Options:
+- **Sync Directory Only (Default)**: Only searches within your configured sync directory
+- **Entire Vault**: Searches all markdown files in your vault (allows you to move notes anywhere)
+- **Specific Folders**: Search only in folders you specify
+
+#### Why Use This Feature:
+- **Organize freely**: Move your Granola notes to different folders without creating duplicates
+- **Flexible workflows**: Keep meeting notes in project folders, daily folders, or anywhere you prefer
+- **Avoid duplicates**: Plugin finds existing notes regardless of their location
+
+#### How to Use Safely:
+1. **Backup your vault first!**
+2. **Test with manual sync**: Change settings, then run manual sync to test
+3. **Use the tools**: 
+   - "Find Duplicate Notes" - scan for existing duplicates
+   - "Re-enable Auto-Sync" - restart auto-sync after testing
+4. **Consider "Entire Vault"**: Safest option if you want to move notes around
+
+#### Example Workflow:
+```
+1. You have notes in "Granola/" folder
+2. You want to organize them by project: "Projects/ProjectA/", "Projects/ProjectB/"
+3. Set search scope to "Entire Vault"
+4. Move your existing notes to project folders
+5. Run manual sync to test - no duplicates created!
+6. Re-enable auto-sync
+```
+
+#### Avoiding Duplicates:
+- **Before changing settings**: Move notes to new location OR use "Entire Vault" search
+- **After changing settings**: Run manual sync first, then re-enable auto-sync
+- **If you get duplicates**: Use "Find Duplicate Notes" tool to identify and clean them up
+
+#### Settings Location:
+Under **🧪 Experimental Features** section in plugin settings.
 
 ### Daily Note Integration
 When enabled, today's Granola meetings automatically appear in your Daily Note:
