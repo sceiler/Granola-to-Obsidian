@@ -2,6 +2,34 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.5.1]
+### Fixed
+- **Platform Support**: Added proper Linux authentication path support (`~/.config/Granola/supabase.json`)
+- **Modern Obsidian APIs**: Replaced deprecated APIs with current best practices
+  - Use `Platform` instead of Node.js `os` module
+  - Use `window.setTimeout`/`window.setInterval` instead of global versions
+  - Use `Vault.process` instead of `Vault.modify` for background file operations
+  - Use `Vault.getFolderByPath` instead of `getAbstractFileByPath`
+  - Use `Vault.recurseChildren` for recursive folder operations
+  - Use `Vault.getAllFolders` for folder enumeration
+  - Use `FileManager.processFrontMatter` for atomic frontmatter updates
+  - Use `MetadataCache.getFileCache` instead of regex for heading detection
+- **UI Consistency**: Converted all UI text to sentence case per Obsidian guidelines
+- **Settings Improvements**: 
+  - Use `setHeading()` instead of HTML heading elements
+  - Remove hardcoded CSS styling
+  - Remove top-level settings heading
+  - Remove ribbon icon toggle (users can customize via Obsidian settings)
+- **Code Quality**: 
+  - Reduced unnecessary console logging while preserving essential error messages
+  - Improved error handling and performance
+- **Version Requirements**: Updated minAppVersion to 1.6.6 to support modern APIs
+
+### Technical
+- All changes maintain backward compatibility for user data and settings
+- No breaking changes to plugin functionality or user experience
+- Addresses all Obsidian plugin review feedback for official plugin store inclusion
+
 ## [1.5.0]
 ### Added
 - **🧪 Experimental: Search Scope for Existing Notes**: Control where the plugin searches for existing notes when checking for duplicates by granola-id

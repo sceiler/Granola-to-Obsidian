@@ -1,14 +1,14 @@
 const obsidian = require('obsidian');
 const path = require('path');
-const os = require('os');
 const fs = require('fs');
 
 function getDefaultAuthPath() {
-	const platform = os.platform();
-	if (platform === 'win32') {
+	if (obsidian.Platform.isWin) {
 		return 'AppData/Roaming/Granola/supabase.json';
+	} else if (obsidian.Platform.isLinux) {
+		return '.config/Granola/supabase.json';
 	} else {
-		// Default to macOS path for macOS, Linux, and other platforms
+		// Default to macOS path
 		return 'Library/Application Support/Granola/supabase.json';
 	}
 }
@@ -22,7 +22,6 @@ const DEFAULT_SETTINGS = {
 	autoSyncFrequency: 300000,
 	enableDailyNoteIntegration: false,
 	dailyNoteSectionName: '## Granola Meetings',
-	showRibbonIcon: true,
 	skipExistingNotes: false,
 	includeAttendeeTags: false,
 	excludeMyNameFromTags: true,
@@ -47,14 +46,16 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 				this.settings = Object.assign({}, DEFAULT_SETTINGS, data);
 			}
 		} catch (error) {
-			console.log('Could not load settings, using defaults');
+			// Could not load settings, using defaults
 		}
 
 		this.statusBarItem = this.addStatusBarItem();
 		this.updateStatusBar('Idle');
 
-		// Add ribbon icon if enabled
-		this.updateRibbonIcon();
+		// Add ribbon icon
+		this.ribbonIconEl = this.addRibbonIcon('sync', 'Sync Granola notes', () => {
+			this.syncNotes();
+		});
 
 		this.addCommand({
 			id: 'sync-granola-notes',
@@ -66,7 +67,7 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 
 		this.addSettingTab(new GranolaSyncSettingTab(this.app, this));
 
-		setTimeout(() => {
+		window.setTimeout(() => {
 			this.setupAutoSync();
 		}, 1000);
 	}
@@ -79,7 +80,6 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 		try {
 			await this.saveData(this.settings);
 			this.setupAutoSync();
-			this.updateRibbonIcon();
 		} catch (error) {
 			console.error('Failed to save settings:', error);
 		}
@@ -88,24 +88,8 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 	async saveSettingsWithoutSync() {
 		try {
 			await this.saveData(this.settings);
-			this.updateRibbonIcon();
 		} catch (error) {
 			console.error('Failed to save settings:', error);
-		}
-	}
-
-	updateRibbonIcon() {
-		// Remove existing ribbon icon if it exists
-		if (this.ribbonIconEl) {
-			this.ribbonIconEl.remove();
-			this.ribbonIconEl = null;
-		}
-
-		// Add ribbon icon if enabled in settings
-		if (this.settings.showRibbonIcon) {
-			this.ribbonIconEl = this.addRibbonIcon('sync', 'Sync Granola Notes', () => {
-				this.syncNotes();
-			});
 		}
 	}
 
@@ -120,12 +104,12 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 			text += 'Syncing...';
 		} else if (status === 'Complete') {
 			text += count + ' notes synced';
-			setTimeout(() => {
+			window.setTimeout(() => {
 				this.updateStatusBar('Idle');
 			}, 3000);
 		} else if (status === 'Error') {
 			text += 'Error - ' + (count || 'sync failed');
-			setTimeout(() => {
+			window.setTimeout(() => {
 				this.updateStatusBar('Idle');
 			}, 5000);
 		}
@@ -138,12 +122,8 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 		
 		if (this.settings.autoSyncFrequency > 0) {
 			this.autoSyncInterval = window.setInterval(() => {
-				console.log('Auto-syncing Granola notes...');
 				this.syncNotes();
 			}, this.settings.autoSyncFrequency);
-			console.log('Auto-sync enabled: every ' + this.getFrequencyLabel(this.settings.autoSyncFrequency));
-		} else {
-			console.log('Auto-sync disabled');
 		}
 	}
 
@@ -198,7 +178,6 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 					// This ensures existing notes from today are still included
 					if (this.settings.enableDailyNoteIntegration && doc.created_at) {
 						const noteDate = new Date(doc.created_at).toDateString();
-						console.log('Checking note for daily integration - Note date:', noteDate, 'Today:', today, 'Title:', doc.title);
 						if (noteDate === today) {
 							// Find the actual file that was created or already exists
 							const actualFile = await this.findExistingNoteByGranolaId(doc.id);
@@ -213,7 +192,6 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 								const minutes = String(createdDate.getMinutes()).padStart(2, '0');
 								noteData.time = hours + ':' + minutes;
 								
-								console.log('Adding note to daily note integration:', noteData.title, 'at', noteData.time, 'path:', noteData.actualFilePath);
 								todaysNotes.push(noteData);
 							}
 						}
@@ -223,13 +201,8 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 				}
 			}
 
-			console.log('Daily note integration check - Enabled:', this.settings.enableDailyNoteIntegration, 'Notes found for today:', todaysNotes.length);
-			
 			if (this.settings.enableDailyNoteIntegration && todaysNotes.length > 0) {
-				console.log('Running daily note integration for', todaysNotes.length, 'notes');
 				await this.updateDailyNote(todaysNotes);
-			} else if (this.settings.enableDailyNoteIntegration && todaysNotes.length === 0) {
-				console.log('Daily note integration enabled but no notes from today found');
 			}
 
 			this.updateStatusBar('Complete', syncedCount);
@@ -242,7 +215,7 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 
 	async loadCredentials() {
 		try {
-			const authPath = path.resolve(os.homedir(), this.settings.authKeyPath);
+			const authPath = path.resolve(require('os').homedir(), this.settings.authKeyPath);
 			const credentialsFile = fs.readFileSync(authPath, 'utf8');
 			const data = JSON.parse(credentialsFile);
 			
@@ -254,7 +227,6 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 				return null;
 			}
 			
-			console.log('Successfully loaded credentials');
 			return accessToken;
 		} catch (error) {
 			console.error('Error reading credentials file:', error);
@@ -291,8 +263,6 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 				return null;
 			}
 
-			console.log('Successfully fetched ' + apiResponse.docs.length + ' documents from Granola');
-			
 			// Store workspaces for later use in folder extraction
 			this.workspaces = workspaces;
 			
@@ -495,37 +465,26 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 		if (this.settings.existingNoteSearchScope === 'entireVault') {
 			// Search all markdown files in the vault
 			filesToSearch = this.app.vault.getMarkdownFiles();
-			console.log('Searching for existing note with granola-id', granolaId, 'across entire vault (' + filesToSearch.length + ' files)');
 		} else if (this.settings.existingNoteSearchScope === 'specificFolders') {
 			// Search in specific folders
-			console.log('Searching for existing note with granola-id', granolaId, 'in specific folders:', this.settings.specificSearchFolders);
-			
 			if (this.settings.specificSearchFolders.length === 0) {
-				console.log('Warning: No specific folders configured for search. No files will be searched.');
 				return null;
 			}
 			
 			for (const folderPath of this.settings.specificSearchFolders) {
-				const folder = this.app.vault.getAbstractFileByPath(folderPath);
-				if (folder && folder instanceof obsidian.TFolder) {
+				const folder = this.app.vault.getFolderByPath(folderPath);
+				if (folder) {
 					const folderFiles = this.getAllMarkdownFilesInFolder(folder);
 					filesToSearch = filesToSearch.concat(folderFiles);
-					console.log('Found', folderFiles.length, 'files in folder:', folderPath);
-				} else {
-					console.log('Folder not found or not a folder:', folderPath);
 				}
 			}
-			console.log('Total files to search:', filesToSearch.length);
 		} else {
 			// Default: search only in sync directory
-			console.log('Searching for existing note with granola-id', granolaId, 'in sync directory only:', this.settings.syncDirectory);
-			const folder = this.app.vault.getAbstractFileByPath(this.settings.syncDirectory);
-			if (!folder || !(folder instanceof obsidian.TFolder)) {
-				console.log('Sync directory not found:', this.settings.syncDirectory);
+			const folder = this.app.vault.getFolderByPath(this.settings.syncDirectory);
+			if (!folder) {
 				return null;
 			}
 			filesToSearch = folder.children.filter(file => file instanceof obsidian.TFile && file.extension === 'md');
-			console.log('Found', filesToSearch.length, 'files in sync directory');
 		}
 
 		for (const file of filesToSearch) {
@@ -538,7 +497,6 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 					const granolaIdMatch = frontmatter.match(/granola_id:\s*(.+)$/m);
 					
 					if (granolaIdMatch && granolaIdMatch[1].trim() === granolaId) {
-						console.log('Found existing note with granola-id', granolaId, 'at:', file.path);
 						return file;
 					}
 				}
@@ -547,28 +505,23 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 			}
 		}
 		
-		console.log('No existing note found with granola-id:', granolaId);
 		return null;
 	}
 
 	getAllMarkdownFilesInFolder(folder) {
-		let files = [];
+		const files = [];
 		
-		// Safety check - ensure folder exists and has children
-		if (!folder || !folder.children) {
+		// Safety check - ensure folder exists
+		if (!folder) {
 			return files;
 		}
 		
-		// Add direct children that are markdown files
-		const directFiles = folder.children.filter(file => file instanceof obsidian.TFile && file.extension === 'md');
-		files = files.concat(directFiles);
-		
-		// Recursively add files from subfolders
-		const subfolders = folder.children.filter(child => child instanceof obsidian.TFolder);
-		for (const subfolder of subfolders) {
-			const subfolderFiles = this.getAllMarkdownFilesInFolder(subfolder);
-			files = files.concat(subfolderFiles);
-		}
+		// Use Vault.recurseChildren to get all markdown files in folder and subfolders
+		this.app.vault.recurseChildren(folder, (file) => {
+			if (file instanceof obsidian.TFile && file.extension === 'md') {
+				files.push(file);
+			}
+		});
 		
 		return files;
 	}
@@ -578,20 +531,12 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 	 * @returns {string[]} Array of folder paths
 	 */
 	getAllFolderPaths() {
-		const folders = [];
-		const allFolders = this.app.vault.getAllLoadedFiles().filter(file => file instanceof obsidian.TFolder);
-		
-		for (const folder of allFolders) {
-			folders.push(folder.path);
-		}
-		
-		return folders.sort();
+		const allFolders = this.app.vault.getAllFolders();
+		return allFolders.map(folder => folder.path).sort();
 	}
 
 	async findDuplicateNotes() {
 		try {
-			console.log('Searching for duplicate Granola notes...');
-			
 			// Get all markdown files in the vault
 			const allFiles = this.app.vault.getMarkdownFiles();
 			const granolaFiles = {};
@@ -635,7 +580,6 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 			if (duplicates.length === 0) {
 				new obsidian.Notice('No duplicate Granola notes found! 🎉');
 			} else {
-				console.log('Found', duplicates.length, 'sets of duplicate notes');
 				
 				// Create a summary message
 				let message = `Found ${duplicates.length} set(s) of duplicate Granola notes:\n\n`;
@@ -651,15 +595,6 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 				message += 'Check the console for full details. You can manually delete the duplicates you don\'t want to keep.';
 				
 				new obsidian.Notice(message, 10000); // Show for 10 seconds
-				
-				// Also log detailed information to console
-				console.log('Duplicate Granola notes found:');
-				for (const duplicate of duplicates) {
-					console.log(`Granola ID: ${duplicate.granolaId}`);
-					for (const file of duplicate.files) {
-						console.log(`  - ${file.path}`);
-					}
-				}
 			}
 			
 		} catch (error) {
@@ -672,8 +607,6 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 		try {
 			const title = doc.title || 'Untitled Granola Note';
 			const docId = doc.id || 'unknown_id';
-			
-			console.log('Processing document: ' + title + ' (ID: ' + docId + ')');
 
 			let contentToParse = null;
 			if (doc.last_viewed_panel && doc.last_viewed_panel.content && doc.last_viewed_panel.content.type === 'doc') {
@@ -681,7 +614,6 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 			}
 
 			if (!contentToParse) {
-				console.log('Skipping document ' + title + ' - no suitable content found');
 				return false;
 			}
 
@@ -690,14 +622,12 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 			
 			if (existingFile) {
 				if (this.settings.skipExistingNotes && !this.settings.includeAttendeeTags && !this.settings.includeGranolaUrl) {
-					console.log('Skipping existing note (skipExistingNotes enabled): ' + existingFile.path);
 					return true; // Return true so it counts as "synced" but we don't update
 				}
 				
 				if (this.settings.skipExistingNotes && (this.settings.includeAttendeeTags || this.settings.includeGranolaUrl)) {
 					// Only update metadata (tags, URLs), preserve existing content
 					try {
-						console.log('Updating metadata for existing note: ' + existingFile.path);
 						await this.updateExistingNoteMetadata(existingFile, doc);
 						return true;
 					} catch (error) {
@@ -721,9 +651,7 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 					// Generate Granola URL
 					const granolaUrl = this.generateGranolaUrl(docId);
 					
-					console.log('Attendee names found:', attendeeNames);
-					console.log('Generated attendee tags:', attendeeTags);
-					console.log('Generated Granola URL:', granolaUrl);
+
 
 					// Combine all tags
 					const allTags = [...attendeeTags, ...folderTags];
@@ -758,8 +686,7 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 					// Use the note title (clean, with proper spacing) for the heading
 					const noteTitle = this.generateNoteTitle(doc);
 					const finalMarkdown = frontmatter + '# ' + noteTitle + '\n\n' + markdownContent;
-					await this.app.vault.modify(existingFile, finalMarkdown);
-					console.log('Successfully updated existing note: ' + existingFile.path);
+					await this.app.vault.process(existingFile, () => finalMarkdown);
 					return true;
 				} catch (updateError) {
 					console.error('Error updating existing note:', updateError);
@@ -781,9 +708,7 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 			// Generate Granola URL
 			const granolaUrl = this.generateGranolaUrl(docId);
 			
-			console.log('Attendee names found:', attendeeNames);
-			console.log('Generated attendee tags:', attendeeTags);
-			console.log('Generated Granola URL:', granolaUrl);
+
 
 			// Combine all tags
 			const allTags = [...attendeeTags, ...folderTags];
@@ -829,18 +754,15 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 				const baseFilename = this.generateFilename(doc);
 				const uniqueFilename = baseFilename + '_' + timestamp + '.md'; 
 				finalFilepath = path.join(this.settings.syncDirectory, uniqueFilename);
-				console.log('File with same name already exists, creating with unique name: ' + finalFilepath);
 				
 				// Check if the unique filename also exists
 				const existingUniqueFile = this.app.vault.getAbstractFileByPath(finalFilepath);
 				if (existingUniqueFile) {
-					console.log('Unique filename also exists, skipping: ' + finalFilepath);
 					return false;
 				}
 			}
 
 			await this.app.vault.create(finalFilepath, finalMarkdown);
-			console.log('Successfully created new note: ' + finalFilepath);
 			return true;
 
 		} catch (error) {
@@ -851,8 +773,8 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 
 	async ensureDirectoryExists() {
 		try {
-			const folder = this.app.vault.getAbstractFileByPath(this.settings.syncDirectory);
-			if (!folder || !(folder instanceof obsidian.TFolder)) {
+			const folder = this.app.vault.getFolderByPath(this.settings.syncDirectory);
+			if (!folder) {
 				await this.app.vault.createFolder(this.settings.syncDirectory);
 			}
 		} catch (error) {
@@ -869,54 +791,48 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 			}
 
 			let content = await this.app.vault.read(dailyNote);
-			console.log('Daily note content length:', content.length);
 			
 			const sectionHeader = this.settings.dailyNoteSectionName;
-			console.log('Looking for section header:', sectionHeader);
 			
 			const notesList = todaysNotes
 				.sort((a, b) => a.time.localeCompare(b.time))
 				.map(note => '- ' + note.time + ' [[' + note.actualFilePath + '|' + note.title + ']]')
 				.join('\n');
 			
-			console.log('Generated notes list:', notesList);
-			
 			const granolaSection = sectionHeader + '\n' + notesList;
 
-			const sectionRegex = new RegExp('^' + this.escapeRegex(sectionHeader) + '$', 'm');
-			console.log('Section regex:', sectionRegex);
-			console.log('Section exists in content:', sectionRegex.test(content));
+			// Use MetadataCache to find existing headings
+			const fileCache = this.app.metadataCache.getFileCache(dailyNote);
+			const headings = fileCache?.headings || [];
 			
-			const nextSectionRegex = /^## /m;
+			// Look for existing section by heading text
+			const existingHeading = headings.find(heading => 
+				heading.heading.trim() === sectionHeader.replace(/^#+\s*/, '').trim()
+			);
 			
-			if (sectionRegex.test(content)) {
-				console.log('Found existing section, replacing content');
+			if (existingHeading) {
+				// Found existing section, replace content
 				const lines = content.split('\n');
-				const sectionIndex = lines.findIndex(line => line.trim() === sectionHeader.trim());
-				console.log('Section found at line index:', sectionIndex);
+				const sectionLineNum = existingHeading.position.start.line;
 				
-				if (sectionIndex !== -1) {
-					let endIndex = lines.length;
-					for (let i = sectionIndex + 1; i < lines.length; i++) {
-						if (lines[i].match(nextSectionRegex)) {
-							endIndex = i;
-							break;
-						}
+				// Find the end of this section (next heading of same or higher level, or end of file)
+				let endLineNum = lines.length;
+				for (const heading of headings) {
+					if (heading.position.start.line > sectionLineNum && heading.level <= existingHeading.level) {
+						endLineNum = heading.position.start.line;
+						break;
 					}
-					console.log('Section ends at line index:', endIndex);
-					
-					const beforeSection = lines.slice(0, sectionIndex).join('\n');
-					const afterSection = lines.slice(endIndex).join('\n');
-					content = beforeSection + '\n' + granolaSection + '\n' + afterSection;
 				}
+				
+				const beforeSection = lines.slice(0, sectionLineNum).join('\n');
+				const afterSection = lines.slice(endLineNum).join('\n');
+				content = beforeSection + '\n' + granolaSection + '\n' + afterSection;
 			} else {
-				console.log('Section not found, appending to end');
+				// Section not found, append to end
 				content += '\n\n' + granolaSection;
 			}
 
-			console.log('Final content length:', content.length);
-			await this.app.vault.modify(dailyNote, content);
-			console.log('Updated daily note with Granola meetings');
+			await this.app.vault.process(dailyNote, () => content);
 			
 		} catch (error) {
 			console.error('Error updating daily note:', error);
@@ -944,26 +860,20 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 				`${day}/${month}/${year}`, // DD/MM/YYYY
 			];
 			
-			console.log('Looking for today\'s daily note. Today:', todayFormatted);
-			console.log('Searching for date formats:', searchFormats);
-			
 			// Search through all files in the vault to find today's daily note
 			const files = this.app.vault.getMarkdownFiles();
-			console.log('Searching through', files.length, 'markdown files');
 			
 			for (const file of files) {
 				// Check if this file is in the daily notes structure and matches any of today's date formats
 				if (file.path.includes('Daily')) {
 					for (const dateFormat of searchFormats) {
 						if (file.path.includes(dateFormat)) {
-							console.log('Found daily note:', file.path, 'matching format:', dateFormat);
 							return file;
 						}
 					}
 				}
 			}
 			
-			console.log('No daily note found for today');
 			return null;
 		} catch (error) {
 			console.error('Error getting daily note:', error);
@@ -971,9 +881,7 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 		}
 	}
 
-	escapeRegex(string) {
-		return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-	}
+
 
 	extractAttendeeNames(doc) {
 		const attendees = [];
@@ -1225,9 +1133,6 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 
 	async updateExistingNoteMetadata(file, doc) {
 		try {
-			// Read existing note content
-			const content = await this.app.vault.read(file);
-			
 			// Extract all metadata
 			const attendeeNames = this.extractAttendeeNames(doc);
 			const attendeeTags = this.generateAttendeeTags(attendeeNames);
@@ -1235,85 +1140,25 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 			const folderTags = this.generateFolderTags(folderNames);
 			const granolaUrl = this.generateGranolaUrl(doc.id);
 			
-			console.log('Updating metadata for existing note:');
-			console.log('  Attendee Names:', attendeeNames);
-			console.log('  Attendee Tags:', attendeeTags);
-			console.log('  Granola URL:', granolaUrl);
-			
-			// Parse existing frontmatter
-			const frontmatterMatch = content.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
-			
-			if (!frontmatterMatch) {
-				console.log('No frontmatter found in existing note, skipping attendee tag update');
-				return;
-			}
-			
-			const existingFrontmatter = frontmatterMatch[1];
-			const noteContent = frontmatterMatch[2];
-			
-			// Parse existing frontmatter into an object
-			const frontmatterLines = existingFrontmatter.split('\n');
-			const frontmatterData = {};
-			let currentKey = null;
-			let inTagsSection = false;
-			
-			for (const line of frontmatterLines) {
-				if (line.startsWith('tags:')) {
-					inTagsSection = true;
-					frontmatterData.tags = [];
-				} else if (line.startsWith('  - ') && inTagsSection) {
-					const tag = line.substring(4).trim();
-					if (!tag.startsWith('person/') && !tag.startsWith('folder/')) {
-						// Keep tags that are not person or folder tags
-						frontmatterData.tags.push(tag);
-					}
-				} else if (line.includes(':') && !line.startsWith('  ')) {
-					inTagsSection = false;
-					const [key, ...valueParts] = line.split(':');
-					const value = valueParts.join(':').trim();
-					frontmatterData[key.trim()] = value;
+			// Use FileManager.processFrontMatter for atomic frontmatter updates
+			await this.app.fileManager.processFrontMatter(file, (frontmatter) => {
+				// Preserve existing tags that are not person or folder tags
+				const existingTags = frontmatter.tags || [];
+				const preservedTags = existingTags.filter(tag => 
+					!tag.startsWith('person/') && !tag.startsWith('folder/')
+				);
+				
+				// Combine attendee and folder tags
+				const newTags = [...attendeeTags, ...folderTags];
+				
+				// Update tags
+				frontmatter.tags = [...preservedTags, ...newTags];
+				
+				// Update or add Granola URL if enabled
+				if (granolaUrl) {
+					frontmatter.granola_url = granolaUrl;
 				}
-			}
-			
-			// Add new tags to existing tags
-			if (!frontmatterData.tags) {
-				frontmatterData.tags = [];
-			}
-			
-			// Combine attendee and folder tags
-			const newTags = [...attendeeTags, ...folderTags];
-			
-			// Add new tags
-			for (const tag of newTags) {
-				if (!frontmatterData.tags.includes(tag)) {
-					frontmatterData.tags.push(tag);
-				}
-			}
-			
-			// Update or add Granola URL if enabled
-			if (granolaUrl) {
-				frontmatterData.granola_url = '"' + granolaUrl + '"';
-			}
-			
-			// Rebuild frontmatter
-			let newFrontmatter = '---\n';
-			for (const [key, value] of Object.entries(frontmatterData)) {
-				if (key === 'tags' && Array.isArray(value) && value.length > 0) {
-					newFrontmatter += 'tags:\n';
-					for (const tag of value) {
-						newFrontmatter += '  - ' + tag + '\n';
-					}
-				} else if (key !== 'tags') {
-					newFrontmatter += key + ': ' + value + '\n';
-				}
-			}
-			newFrontmatter += '---\n';
-			
-			// Write updated content
-			const updatedContent = newFrontmatter + noteContent;
-			await this.app.vault.modify(file, updatedContent);
-			
-			console.log('Successfully updated tags for existing note:', file.path);
+			});
 			
 		} catch (error) {
 			console.error('Error updating attendee tags for existing note:', error);
@@ -1331,21 +1176,11 @@ class GranolaSyncSettingTab extends obsidian.PluginSettingTab {
 	display() {
 		const containerEl = this.containerEl;
 		containerEl.empty();
-		containerEl.createEl('h2', { text: 'Granola Sync Settings' });
+
+
 
 		new obsidian.Setting(containerEl)
-			.setName('Show Ribbon Icon')
-			.setDesc('Display the sync button in the left sidebar ribbon')
-			.addToggle(toggle => {
-				toggle.setValue(this.plugin.settings.showRibbonIcon);
-				toggle.onChange(async (value) => {
-					this.plugin.settings.showRibbonIcon = value;
-					await this.plugin.saveSettings();
-				});
-			});
-
-		new obsidian.Setting(containerEl)
-			.setName('Note Prefix')
+			.setName('Note prefix')
 			.setDesc('Optional prefix to add to all synced note titles')
 			.addText(text => {
 				text.setPlaceholder('granola-');
@@ -1357,7 +1192,7 @@ class GranolaSyncSettingTab extends obsidian.PluginSettingTab {
 			});
 
 		new obsidian.Setting(containerEl)
-			.setName('Auth Key Path')
+			.setName('Auth key path')
 			.setDesc('Path to your Granola authentication key file')
 			.addText(text => {
 				text.setPlaceholder(getDefaultAuthPath());
@@ -1369,7 +1204,7 @@ class GranolaSyncSettingTab extends obsidian.PluginSettingTab {
 			});
 
 		new obsidian.Setting(containerEl)
-			.setName('Date Format')
+			.setName('Date format')
 			.setDesc('Format for dates in filenames. Use YYYY (year), MM (month), DD (day)')
 			.addText(text => {
 				text.setPlaceholder('YYYY-MM-DD');
@@ -1381,7 +1216,7 @@ class GranolaSyncSettingTab extends obsidian.PluginSettingTab {
 			});
 
 		new obsidian.Setting(containerEl)
-			.setName('Filename Template')
+			.setName('Filename template')
 			.setDesc('Template for filenames. Use {title}, {created_date}, {updated_date}, etc.')
 			.addText(text => {
 				text.setPlaceholder('{created_date}_{title}');
@@ -1393,7 +1228,7 @@ class GranolaSyncSettingTab extends obsidian.PluginSettingTab {
 			});
 
 		new obsidian.Setting(containerEl)
-			.setName('Auto-Sync Frequency')
+			.setName('Auto-sync frequency')
 			.setDesc('How often to automatically sync notes')
 			.addDropdown(dropdown => {
 				dropdown.addOption('0', 'Never');
@@ -1416,7 +1251,7 @@ class GranolaSyncSettingTab extends obsidian.PluginSettingTab {
 			});
 
 		new obsidian.Setting(containerEl)
-			.setName('Skip Existing Notes')
+			.setName('Skip existing notes')
 			.setDesc('When enabled, notes that already exist will not be updated during sync. This preserves any manual tags, summaries, or other additions you\'ve made.')
 			.addToggle(toggle => {
 				toggle.setValue(this.plugin.settings.skipExistingNotes);
@@ -1427,25 +1262,22 @@ class GranolaSyncSettingTab extends obsidian.PluginSettingTab {
 			});
 
 		// Create experimental section header
-		containerEl.createEl('h4', { text: '🧪 Experimental Features' });
+		containerEl.createEl('div').setHeading(4).setText('🧪 Experimental features');
 		
 		const experimentalWarning = containerEl.createEl('div', { cls: 'setting-item' });
 		experimentalWarning.createEl('div', { cls: 'setting-item-info' });
 		const warningNameEl = experimentalWarning.createEl('div', { cls: 'setting-item-name' });
-		warningNameEl.setText('⚠️ Please Backup Your Vault');
+		warningNameEl.setText('⚠️ Please backup your vault');
 		const warningDescEl = experimentalWarning.createEl('div', { cls: 'setting-item-description' });
-		warningDescEl.setText('The features below are experimental and may create duplicate notes if not used carefully. Please backup your vault before changing these settings.');
-		warningDescEl.style.color = 'var(--text-error)';
-		warningDescEl.style.fontSize = '0.9em';
-		warningDescEl.style.fontWeight = 'bold';
+		warningDescEl.setText('⚠️ The features below are experimental and may create duplicate notes if not used carefully. Please backup your vault before changing these settings.');
 
 		new obsidian.Setting(containerEl)
-			.setName('Search Scope for Existing Notes')
-			.setDesc('Choose where to search for existing notes when checking granola-id. "Sync Directory Only" (default) only checks the configured sync folder. "Entire Vault" allows you to move notes anywhere in your vault. "Specific Folders" lets you choose which folders to search.')
+			.setName('Search scope for existing notes')
+			.setDesc('Choose where to search for existing notes when checking granola-id. "Sync directory only" (default) only checks the configured sync folder. "Entire vault" allows you to move notes anywhere in your vault. "Specific folders" lets you choose which folders to search.')
 			.addDropdown(dropdown => {
-				dropdown.addOption('syncDirectory', 'Sync Directory Only (Default)');
-				dropdown.addOption('entireVault', 'Entire Vault');
-				dropdown.addOption('specificFolders', 'Specific Folders');
+				dropdown.addOption('syncDirectory', 'Sync directory only (default)');
+				dropdown.addOption('entireVault', 'Entire vault');
+				dropdown.addOption('specificFolders', 'Specific folders');
 				
 				dropdown.setValue(this.plugin.settings.existingNoteSearchScope);
 				dropdown.onChange(async (value) => {
@@ -1467,7 +1299,7 @@ class GranolaSyncSettingTab extends obsidian.PluginSettingTab {
 		// Show folder selection only when 'specificFolders' is selected
 		if (this.plugin.settings.existingNoteSearchScope === 'specificFolders') {
 			new obsidian.Setting(containerEl)
-				.setName('Specific Search Folders')
+				.setName('Specific search folders')
 				.setDesc('Enter folder paths to search (one per line). Leave empty to search all folders.')
 				.addTextArea(text => {
 					text.setPlaceholder('Examples:\nMeetings\nProjects/Work\nDaily Notes');
@@ -1492,8 +1324,8 @@ class GranolaSyncSettingTab extends obsidian.PluginSettingTab {
 						// Validate folder paths
 						const invalidFolders = [];
 						for (const folderPath of folders) {
-							const folder = this.app.vault.getAbstractFileByPath(folderPath);
-							if (!folder || !(folder instanceof obsidian.TFolder)) {
+							const folder = this.app.vault.getFolderByPath(folderPath);
+							if (!folder) {
 								invalidFolders.push(folderPath);
 							}
 						}
@@ -1509,17 +1341,15 @@ class GranolaSyncSettingTab extends obsidian.PluginSettingTab {
 		const infoEl = containerEl.createEl('div', { cls: 'setting-item' });
 		infoEl.createEl('div', { cls: 'setting-item-info' });
 		const infoNameEl = infoEl.createEl('div', { cls: 'setting-item-name' });
-		infoNameEl.setText('⚠️ Avoiding Duplicates');
+		infoNameEl.setText('⚠️ Avoiding duplicates');
 		const infoDescEl = infoEl.createEl('div', { cls: 'setting-item-description' });
 		infoDescEl.setText('When changing search scope, existing notes in other locations won\'t be found and may be recreated. To avoid duplicates: 1) Move your existing notes to the new search location first, or 2) Use "Entire Vault" to search everywhere, or 3) Run a manual sync after changing settings to test before auto-sync runs.');
-		infoDescEl.style.color = 'var(--text-muted)';
-		infoDescEl.style.fontSize = '0.9em';
 
 		// Create a heading for metadata settings
-		containerEl.createEl('h3', { text: 'Note Metadata & Tags' });
+		containerEl.createEl('div').setHeading(3).setText('Note metadata & tags');
 
 		new obsidian.Setting(containerEl)
-			.setName('Include Attendee Tags')
+			.setName('Include attendee tags')
 			.setDesc('Add meeting attendees as tags in the frontmatter of each note')
 			.addToggle(toggle => {
 				toggle.setValue(this.plugin.settings.includeAttendeeTags);
@@ -1530,7 +1360,7 @@ class GranolaSyncSettingTab extends obsidian.PluginSettingTab {
 			});
 
 		new obsidian.Setting(containerEl)
-			.setName('Exclude My Name from Tags')
+			.setName('Exclude my name from tags')
 			.setDesc('When adding attendee tags, exclude your own name from the list')
 			.addToggle(toggle => {
 				toggle.setValue(this.plugin.settings.excludeMyNameFromTags);
@@ -1541,7 +1371,7 @@ class GranolaSyncSettingTab extends obsidian.PluginSettingTab {
 			});
 
 		new obsidian.Setting(containerEl)
-			.setName('My Name')
+			.setName('My name')
 			.setDesc('Your name as it appears in Granola meetings (used to exclude from attendee tags)')
 			.addText(text => {
 				text.setPlaceholder('Danny McClelland');
@@ -1553,7 +1383,7 @@ class GranolaSyncSettingTab extends obsidian.PluginSettingTab {
 			});
 
 		new obsidian.Setting(containerEl)
-			.setName('Attendee Tag Template')
+			.setName('Attendee tag template')
 			.setDesc('Customize the structure of attendee tags. Use {name} as placeholder for the attendee name. Examples: "person/{name}", "people/{name}", "meeting-attendees/{name}"')
 			.addText(text => {
 				text.setPlaceholder('person/{name}');
@@ -1592,11 +1422,11 @@ class GranolaSyncSettingTab extends obsidian.PluginSettingTab {
 			});
 
 		// Create a heading for daily note integration
-		containerEl.createEl('h3', { text: 'Daily Note Integration' });
+		containerEl.createEl('div').setHeading(3).setText('Daily note integration');
 
 		new obsidian.Setting(containerEl)
-			.setName('Daily Note Integration')
-			.setDesc('Add todays meetings to your Daily Note')
+			.setName('Daily note integration')
+			.setDesc('Add todays meetings to your daily note')
 			.addToggle(toggle => {
 				toggle.setValue(this.plugin.settings.enableDailyNoteIntegration);
 				toggle.onChange(async (value) => {
@@ -1606,8 +1436,8 @@ class GranolaSyncSettingTab extends obsidian.PluginSettingTab {
 			});
 
 		new obsidian.Setting(containerEl)
-			.setName('Daily Note Section Name')
-			.setDesc('The heading name for the Granola meetings section in your Daily Note')
+			.setName('Daily note section name')
+			.setDesc('The heading name for the Granola meetings section in your daily note')
 			.addText(text => {
 				text.setPlaceholder('## Granola Meetings');
 				text.setValue(this.plugin.settings.dailyNoteSectionName);
@@ -1618,10 +1448,10 @@ class GranolaSyncSettingTab extends obsidian.PluginSettingTab {
 			});
 
 		// Create a heading for file organization settings
-		containerEl.createEl('h3', { text: 'File Organization' });
+		containerEl.createEl('div').setHeading(3).setText('File organization');
 
 		new obsidian.Setting(containerEl)
-			.setName('Sync Directory')
+			.setName('Sync directory')
 			.setDesc('Directory within your vault where Granola notes will be synced')
 			.addText(text => {
 				text.setPlaceholder('Granola');
@@ -1633,10 +1463,10 @@ class GranolaSyncSettingTab extends obsidian.PluginSettingTab {
 			});
 
 		new obsidian.Setting(containerEl)
-			.setName('Manual Sync')
+			.setName('Manual sync')
 			.setDesc('Click to manually sync your Granola notes')
 			.addButton(button => {
-				button.setButtonText('Sync Now');
+				button.setButtonText('Sync now');
 				button.setCta();
 				button.onClick(async () => {
 					await this.plugin.syncNotes();
@@ -1644,20 +1474,20 @@ class GranolaSyncSettingTab extends obsidian.PluginSettingTab {
 			});
 
 		new obsidian.Setting(containerEl)
-			.setName('Find Duplicate Notes')
+			.setName('Find duplicate notes')
 			.setDesc('Find and list notes with the same granola-id (helpful after changing search scope settings)')
 			.addButton(button => {
-				button.setButtonText('Find Duplicates');
+				button.setButtonText('Find duplicates');
 				button.onClick(async () => {
 					await this.plugin.findDuplicateNotes();
 				});
 			});
 
 		new obsidian.Setting(containerEl)
-			.setName('Re-enable Auto-Sync')
+			.setName('Re-enable auto-sync')
 			.setDesc('Re-enable auto-sync after testing new search scope settings (this will restart the auto-sync timer)')
 			.addButton(button => {
-				button.setButtonText('Re-enable Auto-Sync');
+				button.setButtonText('Re-enable auto-sync');
 				button.onClick(async () => {
 					await this.plugin.saveSettings(); // This will call setupAutoSync()
 					new obsidian.Notice('Auto-sync re-enabled with current settings');
