@@ -459,7 +459,7 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 	 * @param {string} granolaId - The Granola ID to search for
 	 * @returns {TFile|null} The found file or null if not found
 	 */
-	async findExistingNoteByGranolaId(granolaId) {
+		async findExistingNoteByGranolaId(granolaId) {
 		let filesToSearch = [];
 
 		if (this.settings.existingNoteSearchScope === 'entireVault') {
@@ -468,9 +468,9 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 		} else if (this.settings.existingNoteSearchScope === 'specificFolders') {
 			// Search in specific folders
 			if (this.settings.specificSearchFolders.length === 0) {
-				return null;
-			}
-			
+			return null;
+		}
+
 			for (const folderPath of this.settings.specificSearchFolders) {
 				const folder = this.app.vault.getFolderByPath(folderPath);
 				if (folder) {
@@ -486,7 +486,7 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 			}
 			filesToSearch = folder.children.filter(file => file instanceof obsidian.TFile && file.extension === 'md');
 		}
-
+		
 		for (const file of filesToSearch) {
 			try {
 				const content = await this.app.vault.read(file);
@@ -1058,24 +1058,20 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 			if (Array.isArray(this.workspaces)) {
 				const workspace = this.workspaces.find(ws => ws.id === workspaceId);
 				if (workspace && workspace.name) {
-					console.log('Found workspace name:', workspace.name, 'for ID:', workspaceId);
 					return workspace.name;
 				}
 			} else if (this.workspaces.workspaces && Array.isArray(this.workspaces.workspaces)) {
 				const workspace = this.workspaces.workspaces.find(ws => ws.id === workspaceId);
 				if (workspace && workspace.name) {
-					console.log('Found workspace name:', workspace.name, 'for ID:', workspaceId);
 					return workspace.name;
 				}
 			} else if (this.workspaces.lists && Array.isArray(this.workspaces.lists)) {
 				const list = this.workspaces.lists.find(l => l.id === workspaceId);
 				if (list && list.name) {
-					console.log('Found list name:', list.name, 'for ID:', workspaceId);
 					return list.name;
 				}
 			}
 			
-			console.log('Could not find matching workspace/list for ID:', workspaceId);
 			return null;
 		} catch (error) {
 			console.error('Error finding workspace name:', error);
@@ -1177,8 +1173,6 @@ class GranolaSyncSettingTab extends obsidian.PluginSettingTab {
 		const containerEl = this.containerEl;
 		containerEl.empty();
 
-
-
 		new obsidian.Setting(containerEl)
 			.setName('Note prefix')
 			.setDesc('Optional prefix to add to all synced note titles')
@@ -1262,7 +1256,7 @@ class GranolaSyncSettingTab extends obsidian.PluginSettingTab {
 			});
 
 		// Create experimental section header
-		containerEl.createEl('div').setHeading(4).setText('🧪 Experimental features');
+		containerEl.createEl('h4', {text: '🧪 Experimental features'});
 		
 		const experimentalWarning = containerEl.createEl('div', { cls: 'setting-item' });
 		experimentalWarning.createEl('div', { cls: 'setting-item-info' });
@@ -1346,7 +1340,7 @@ class GranolaSyncSettingTab extends obsidian.PluginSettingTab {
 		infoDescEl.setText('When changing search scope, existing notes in other locations won\'t be found and may be recreated. To avoid duplicates: 1) Move your existing notes to the new search location first, or 2) Use "Entire Vault" to search everywhere, or 3) Run a manual sync after changing settings to test before auto-sync runs.');
 
 		// Create a heading for metadata settings
-		containerEl.createEl('div').setHeading(3).setText('Note metadata & tags');
+		containerEl.createEl('h3', {text: 'Note metadata & tags'});
 
 		new obsidian.Setting(containerEl)
 			.setName('Include attendee tags')
@@ -1422,7 +1416,7 @@ class GranolaSyncSettingTab extends obsidian.PluginSettingTab {
 			});
 
 		// Create a heading for daily note integration
-		containerEl.createEl('div').setHeading(3).setText('Daily note integration');
+		containerEl.createEl('h3', {text: 'Daily note integration'});
 
 		new obsidian.Setting(containerEl)
 			.setName('Daily note integration')
@@ -1448,7 +1442,7 @@ class GranolaSyncSettingTab extends obsidian.PluginSettingTab {
 			});
 
 		// Create a heading for file organization settings
-		containerEl.createEl('div').setHeading(3).setText('File organization');
+		containerEl.createEl('h3', {text: 'File organization'});
 
 		new obsidian.Setting(containerEl)
 			.setName('Sync directory')

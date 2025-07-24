@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.5.2]
+### Fixed
+- **Settings UI**: Fixed JavaScript errors that prevented all settings from displaying
+- **Heading Syntax**: Corrected `setHeading()` calls to use proper `createEl()` syntax
+- **Sync Functionality**: Resolved sync issues caused by cached JavaScript errors
+- **Console Output**: Cleaned up debug logs for cleaner production experience
+
+### Technical
+- Fixed `containerEl.createEl().setHeading()` runtime errors
+- Restored all 19 settings to be properly displayed and functional
+- Improved error handling and reduced verbose logging
+
 ## [1.5.1]
 ### Fixed
 - **Platform Support**: Added proper Linux authentication path support (`~/.config/Granola/supabase.json`)
