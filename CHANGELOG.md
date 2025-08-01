@@ -2,6 +2,31 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.6.0]
+### Added
+- **🗓️ Periodic Notes Integration**: New support for the Periodic Notes plugin alongside existing Daily Notes integration
+  - Independent toggle for Periodic Notes integration (can be used with or without Daily Notes)
+  - Configurable section heading for Periodic Notes (separate from Daily Notes section)
+  - Automatic detection of Periodic Notes plugin availability
+  - Settings UI automatically disables when Periodic Notes plugin is not installed
+  - Seamlessly integrates with Periodic Notes' daily note creation and management
+
+### Enhanced
+- **Dual Integration Support**: Users can now enable Daily Notes, Periodic Notes, both, or neither
+- **User Choice**: Flexible integration options to match different Obsidian workflows
+- **Backward Compatibility**: All existing Daily Notes functionality preserved unchanged
+
+### Technical
+- Added `enablePeriodicNoteIntegration` and `periodicNoteSectionName` settings
+- Added `isPeriodicNotesPluginAvailable()` method for plugin detection
+- Added `getPeriodicNote()` method for Periodic Notes API integration
+- Added `updatePeriodicNote()` method mirroring Daily Notes functionality
+- Enhanced sync logic to support both integrations independently
+- All changes maintain 100% backward compatibility with existing settings and workflows
+
+### Fixes Issue
+- Resolves [#6](https://github.com/dannymcc/Granola-to-Obsidian/issues/6): Request for Periodic Notes plugin support
+
 ## [1.5.2]
 ### Fixed
 - **Settings UI**: Fixed JavaScript errors that prevented all settings from displaying

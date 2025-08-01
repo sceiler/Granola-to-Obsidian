@@ -5,7 +5,7 @@
 
 An Obsidian plugin that automatically syncs your [Granola AI](https://granola.ai) meeting notes to your Obsidian vault with full customization options and real-time status updates.
 
-![Granola Sync Plugin](https://img.shields.io/badge/Obsidian-Plugin-purple) ![Version](https://img.shields.io/badge/version-1.5.2-blue) ![License](https://img.shields.io/badge/license-MIT-green)
+![Granola Sync Plugin](https://img.shields.io/badge/Obsidian-Plugin-purple) ![Version](https://img.shields.io/badge/version-1.6.0-blue) ![License](https://img.shields.io/badge/license-MIT-green)
 
 ![Granola Sync](https://i.imgur.com/EmFRYTO.png)
 
@@ -19,6 +19,7 @@ An Obsidian plugin that automatically syncs your [Granola AI](https://granola.ai
 - **🏷️ Note Prefixes**: Add custom prefixes to all synced notes
 - **🔧 Custom Auth Path**: Override the default Granola credentials location
 - **🗓️ Daily Note Integration**: Automatically add today's meetings to your Daily Note with times and links
+- **📅 Periodic Notes Support**: Full integration with the Periodic Notes plugin for flexible daily note management
 - **🏷️ Attendee Tagging**: Automatically extract meeting attendees and add them as organized tags (e.g., `person/john-smith`)
 - **🔗 Granola URL Links**: Add direct links back to original Granola notes in frontmatter for easy access
 - **🔧 Smart Filtering**: Exclude your own name from attendee tags with configurable settings
@@ -227,6 +228,20 @@ When enabled, today's Granola meetings automatically appear in your Daily Note:
 - 09:30 [[Granola/2025-06-09_Team_Standup|Team Standup]]
 - 14:00 [[Granola/2025-06-09_Client_Review|Client Review Meeting]]
 ```
+
+### Periodic Notes Integration
+The plugin now supports the [Periodic Notes plugin](https://github.com/liamcain/obsidian-periodic-notes) for enhanced daily note management:
+
+- **Independent Integration**: Works alongside or instead of Daily Notes integration
+- **Plugin Detection**: Automatically detects if Periodic Notes plugin is available
+- **Flexible Configuration**: Separate section heading configuration for Periodic Notes
+- **Seamless Workflow**: Integrates with Periodic Notes' daily note creation and templating
+
+**Setup Requirements:**
+1. Install and enable the [Periodic Notes plugin](https://github.com/liamcain/obsidian-periodic-notes)
+2. Configure your daily note templates in Periodic Notes settings
+3. Enable "Periodic note integration" in Granola Sync settings
+4. Customize the section heading as desired
 
 ### Attendee Tagging Usage
 

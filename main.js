@@ -22,6 +22,8 @@ const DEFAULT_SETTINGS = {
 	autoSyncFrequency: 300000,
 	enableDailyNoteIntegration: false,
 	dailyNoteSectionName: '## Granola Meetings',
+	enablePeriodicNoteIntegration: false,
+	periodicNoteSectionName: '## Granola Meetings',
 	skipExistingNotes: false,
 	includeAttendeeTags: false,
 	excludeMyNameFromTags: true,
@@ -203,6 +205,10 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 
 			if (this.settings.enableDailyNoteIntegration && todaysNotes.length > 0) {
 				await this.updateDailyNote(todaysNotes);
+			}
+
+			if (this.settings.enablePeriodicNoteIntegration && todaysNotes.length > 0) {
+				await this.updatePeriodicNote(todaysNotes);
 			}
 
 			this.updateStatusBar('Complete', syncedCount);
@@ -839,6 +845,63 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 		}
 	}
 
+	async updatePeriodicNote(todaysNotes) {
+		try {
+			const periodicNote = await this.getPeriodicNote();
+			if (!periodicNote) {
+				console.log('No periodic note found, skipping periodic note integration');
+				return;
+			}
+
+			let content = await this.app.vault.read(periodicNote);
+			
+			const sectionHeader = this.settings.periodicNoteSectionName;
+			
+			const notesList = todaysNotes
+				.sort((a, b) => a.time.localeCompare(b.time))
+				.map(note => '- ' + note.time + ' [[' + note.actualFilePath + '|' + note.title + ']]')
+				.join('\n');
+			
+			const granolaSection = sectionHeader + '\n' + notesList;
+
+			// Use MetadataCache to find existing headings
+			const fileCache = this.app.metadataCache.getFileCache(periodicNote);
+			const headings = fileCache?.headings || [];
+			
+			// Look for existing section by heading text
+			const existingHeading = headings.find(heading => 
+				heading.heading.trim() === sectionHeader.replace(/^#+\s*/, '').trim()
+			);
+			
+			if (existingHeading) {
+				// Found existing section, replace content
+				const lines = content.split('\n');
+				const sectionLineNum = existingHeading.position.start.line;
+				
+				// Find the end of this section (next heading of same or higher level, or end of file)
+				let endLineNum = lines.length;
+				for (const heading of headings) {
+					if (heading.position.start.line > sectionLineNum && heading.level <= existingHeading.level) {
+						endLineNum = heading.position.start.line;
+						break;
+					}
+				}
+				
+				const beforeSection = lines.slice(0, sectionLineNum).join('\n');
+				const afterSection = lines.slice(endLineNum).join('\n');
+				content = beforeSection + '\n' + granolaSection + '\n' + afterSection;
+			} else {
+				// Section not found, append to end
+				content += '\n\n' + granolaSection;
+			}
+
+			await this.app.vault.process(periodicNote, () => content);
+			
+		} catch (error) {
+			console.error('Error updating periodic note:', error);
+		}
+	}
+
 	async getDailyNote() {
 		try {
 			// Try to get today's daily note using a simpler approach
@@ -881,7 +944,44 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 		}
 	}
 
+	isPeriodicNotesPluginAvailable() {
+		return this.app.plugins.enabledPlugins.has('periodic-notes');
+	}
 
+	async getPeriodicNote() {
+		try {
+			if (!this.isPeriodicNotesPluginAvailable()) {
+				console.log('Periodic Notes plugin not available');
+				return null;
+			}
+
+			const periodicNotesPlugin = this.app.plugins.plugins['periodic-notes'];
+			if (!periodicNotesPlugin || !periodicNotesPlugin.api) {
+				console.log('Periodic Notes plugin API not accessible');
+				return null;
+			}
+
+			const { createDailyNote, getDailyNote } = periodicNotesPlugin.api;
+			
+			// Get today's date using the same moment instance that Periodic Notes uses
+			const today = window.moment ? window.moment() : null;
+			if (!today) {
+				console.log('Moment.js not available for Periodic Notes integration');
+				return null;
+			}
+
+			// Try to get existing daily note first, then create if it doesn't exist
+			let dailyNote = getDailyNote(today, false);
+			if (!dailyNote && createDailyNote) {
+				dailyNote = await createDailyNote(today);
+			}
+
+			return dailyNote;
+		} catch (error) {
+			console.error('Error getting periodic note:', error);
+			return null;
+		}
+	}
 
 	extractAttendeeNames(doc) {
 		const attendees = [];
@@ -1437,6 +1537,33 @@ class GranolaSyncSettingTab extends obsidian.PluginSettingTab {
 				text.setValue(this.plugin.settings.dailyNoteSectionName);
 				text.onChange(async (value) => {
 					this.plugin.settings.dailyNoteSectionName = value;
+					await this.plugin.saveSettings();
+				});
+			});
+
+		// Create a heading for periodic note integration
+		containerEl.createEl('h3', {text: 'Periodic note integration'});
+
+		new obsidian.Setting(containerEl)
+			.setName('Periodic note integration')
+			.setDesc('Add todays meetings to your periodic daily note (requires Periodic Notes plugin)')
+			.addToggle(toggle => {
+				toggle.setValue(this.plugin.settings.enablePeriodicNoteIntegration);
+				toggle.setDisabled(!this.plugin.isPeriodicNotesPluginAvailable());
+				toggle.onChange(async (value) => {
+					this.plugin.settings.enablePeriodicNoteIntegration = value;
+					await this.plugin.saveSettings();
+				});
+			});
+
+		new obsidian.Setting(containerEl)
+			.setName('Periodic note section name')
+			.setDesc('The heading name for the Granola meetings section in your periodic note')
+			.addText(text => {
+				text.setPlaceholder('## Granola Meetings');
+				text.setValue(this.plugin.settings.periodicNoteSectionName);
+				text.onChange(async (value) => {
+					this.plugin.settings.periodicNoteSectionName = value;
 					await this.plugin.saveSettings();
 				});
 			});
