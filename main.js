@@ -32,7 +32,9 @@ const DEFAULT_SETTINGS = {
 	includeGranolaUrl: false,
 	attendeeTagTemplate: 'person/{name}',
 	existingNoteSearchScope: 'syncDirectory', // 'syncDirectory', 'entireVault', 'specificFolders'
-	specificSearchFolders: [] // Array of folder paths to search in when existingNoteSearchScope is 'specificFolders'
+	specificSearchFolders: [], // Array of folder paths to search in when existingNoteSearchScope is 'specificFolders'
+	enableDateBasedFolders: false,
+	dateFolderFormat: 'YYYY-MM-DD',
 };
 
 class GranolaSyncPlugin extends obsidian.Plugin {
@@ -451,6 +453,26 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 		return filename;
 	}
 
+	generateDateBasedPath(doc) {
+		if (!this.settings.enableDateBasedFolders || !doc.created_at) {
+			return this.settings.syncDirectory;
+		}
+
+		const dateFolder = this.formatDate(doc.created_at, this.settings.dateFolderFormat);
+		return path.join(this.settings.syncDirectory, dateFolder);
+	}
+
+	async ensureDateBasedDirectoryExists(datePath) {
+		try {
+			const folder = this.app.vault.getFolderByPath(datePath);
+			if (!folder) {
+				await this.app.vault.createFolder(datePath);
+			}
+		} catch (error) {
+			console.error('Error creating date-based directory:', datePath, error);
+		}
+	}
+
 	/**
 	 * Finds an existing note by its Granola ID based on the configured search scope.
 	 * 
@@ -748,7 +770,11 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 			const finalMarkdown = frontmatter + markdownContent;
 
 			const filename = this.generateFilename(doc) + '.md';
-			const filepath = path.join(this.settings.syncDirectory, filename);
+			// Use date-based path if enabled, otherwise use sync directory
+			const targetDirectory = this.generateDateBasedPath(doc);
+			const filepath = path.join(targetDirectory, filename);
+
+			await this.ensureDateBasedDirectoryExists(targetDirectory);
 
 			// Check if file with same name already exists
 			let finalFilepath = filepath;
@@ -759,7 +785,7 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 				const timestamp = this.formatDate(doc.created_at, 'HH-mm');
 				const baseFilename = this.generateFilename(doc);
 				const uniqueFilename = baseFilename + '_' + timestamp + '.md'; 
-				finalFilepath = path.join(this.settings.syncDirectory, uniqueFilename);
+				finalFilepath = path.join(targetDirectory, uniqueFilename);
 				
 				// Check if the unique filename also exists
 				const existingUniqueFile = this.app.vault.getAbstractFileByPath(finalFilepath);
@@ -1351,6 +1377,29 @@ class GranolaSyncSettingTab extends obsidian.PluginSettingTab {
 				toggle.setValue(this.plugin.settings.skipExistingNotes);
 				toggle.onChange(async (value) => {
 					this.plugin.settings.skipExistingNotes = value;
+					await this.plugin.saveSettings();
+				});
+			});
+
+		new obsidian.Setting(containerEl)
+			.setName('Enable date-based folders')
+			.setDesc('Organize notes into subfolders based on their creation date')
+			.addToggle(toggle => {
+				toggle.setValue(this.plugin.settings.enableDateBasedFolders);
+				toggle.onChange(async (value) => {
+					this.plugin.settings.enableDateBasedFolders = value;
+					await this.plugin.saveSettings();
+				});
+			});
+
+		new obsidian.Setting(containerEl)
+			.setName('Date folder format')
+			.setDesc('Format for date-based folder structure. Examples: "YYYY-MM-DD" or "YYYY/MM/DD" subfolders')
+			.addText(text => {
+				text.setPlaceholder('YYYY/MM/DD');
+				text.setValue(this.plugin.settings.dateFolderFormat);
+				text.onChange(async (value) => {
+					this.plugin.settings.dateFolderFormat = value || 'YYYY/MM/DD';
 					await this.plugin.saveSettings();
 				});
 			});
