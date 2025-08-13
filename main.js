@@ -148,6 +148,72 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 		return hours + ' hours';
 	}
 
+	// Helper function to get a readable speaker label
+	getSpeakerLabel(source) {
+		switch (source) {
+			case "microphone":
+				return "Me";
+			case "system":
+			default:
+				return "Them";
+		}
+	}	
+
+	// Helper function to format timestamp for display
+	formatTimestamp(timestamp) {
+		const d = new Date(timestamp);
+		return [d.getHours(), d.getMinutes(), d.getSeconds()]
+			.map(v => String(v).padStart(2, '0'))
+			.join(':');
+	}
+
+	transcriptToMarkdown(segments) {
+		if (!segments || segments.length === 0) {
+			return "*No transcript content available*";
+		}
+
+		const sortedSegments = segments.slice().sort((a, b) => {
+			const timeA = new Date(a.start_timestamp || 0);
+			const timeB = new Date(b.start_timestamp || 0);
+			return timeA - timeB;
+		});
+
+		const lines = [];
+		let currentSpeaker = null;
+		let currentText = "";
+		let currentTimestamp = null;
+
+		const flushCurrentSegment = () => {
+			const cleanText = currentText.trim().replace(/\s+/g, " ");
+			if (cleanText && currentSpeaker) {
+				const timeStr = this.formatTimestamp(currentTimestamp);
+				const speakerLabel = this.getSpeakerLabel(currentSpeaker);
+				lines.push(`**${speakerLabel}** *(${timeStr})*: ${cleanText}`)
+			}
+			currentText = "";
+			currentSpeaker = null;
+			currentTimestamp = null;
+		};
+
+		for (const segment of sortedSegments) {
+			if (currentSpeaker && currentSpeaker !== segment.source) {
+				flushCurrentSegment();
+			}
+			if (!currentSpeaker) {
+				currentSpeaker = segment.source;
+				currentTimestamp = segment.start_timestamp;
+			}
+			const segmentText = segment.text;
+			if (segmentText && segmentText.trim()) {
+				currentText += currentText ? ` ${segmentText}` : segmentText;
+			}
+		}
+		flushCurrentSegment();
+
+		return lines.length === 0 ? "*No transcript content available*" : lines.join("\n\n");
+
+	}
+
 	async syncNotes() {
 		try {
 			this.updateStatusBar('Syncing');
@@ -173,6 +239,12 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 			for (let i = 0; i < documents.length; i++) {
 				const doc = documents[i];
 				try {
+					// Fetch transcript if enabled
+					if (this.settings.includeFullTranscript) {
+						const transcriptData = await this.fetchTranscript(token, doc.id);
+						doc.transcript = this.transcriptToMarkdown(transcriptData);
+					}
+
 					const success = await this.processDocument(doc);
 					if (success) {
 						syncedCount++;
@@ -277,6 +349,29 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 			return apiResponse.docs;
 		} catch (error) {
 			console.error('Error fetching documents:', error);
+			return null;
+		}
+	}
+
+	async fetchTranscript(token, docId) {
+		try {
+			const response = await obsidian.requestUrl({
+				url: `https://api.granola.ai/v1/get-document-transcript`,
+				method: 'POST',
+				headers: {
+					'Authorization': 'Bearer ' + token,
+					'Content-Type': 'application/json',
+					'Accept': 'application/json',
+				},
+				body: JSON.stringify({
+					'document_id': docId
+				})
+			});
+
+			return response.json;
+
+		} catch (error) {
+			console.error('Error fetching transcript for document ' + docId + ':' + error);
 			return null;
 		}
 	}
@@ -635,6 +730,7 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 		try {
 			const title = doc.title || 'Untitled Granola Note';
 			const docId = doc.id || 'unknown_id';
+			const transcript = doc.transcript || 'no_transcript';
 
 			let contentToParse = null;
 			if (doc.last_viewed_panel && doc.last_viewed_panel.content && doc.last_viewed_panel.content.type === 'doc') {
@@ -713,7 +809,12 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 
 					// Use the note title (clean, with proper spacing) for the heading
 					const noteTitle = this.generateNoteTitle(doc);
-					const finalMarkdown = frontmatter + '# ' + noteTitle + '\n\n' + markdownContent;
+					let finalMarkdown = frontmatter + '# ' + noteTitle + '\n\n' + markdownContent;
+					// Add transcript section if enabled and transcript is available
+					if (this.settings.includeFullTranscript) {
+						finalMarkdown += '\n\n# Transcript\n\n' + transcript;
+					}
+					
 					await this.app.vault.process(existingFile, () => finalMarkdown);
 					return true;
 				} catch (updateError) {
@@ -767,7 +868,11 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 			
 			frontmatter += '---\n\n';
 
-			const finalMarkdown = frontmatter + markdownContent;
+			let finalMarkdown = frontmatter + markdownContent;
+			// Add transcript section if enabled and transcript is available
+			if (this.settings.includeFullTranscript) {
+				finalMarkdown += '\n\n# Transcript\n\n' + transcript;
+			}
 
 			const filename = this.generateFilename(doc) + '.md';
 			// Use date-based path if enabled, otherwise use sync directory
@@ -1331,6 +1436,18 @@ class GranolaSyncSettingTab extends obsidian.PluginSettingTab {
 				text.setValue(this.plugin.settings.dateFormat);
 				text.onChange(async (value) => {
 					this.plugin.settings.dateFormat = value;
+					await this.plugin.saveSettings();
+				});
+			});
+
+
+		new obsidian.Setting(containerEl)
+			.setName('Include full transcript')
+			.setDesc('Include the full meeting transcript in each note under a "# Transcript" section. This requires an additional API call per note and may slow down sync.')
+			.addToggle(toggle => {
+				toggle.setValue(this.plugin.settings.includeFullTranscript);
+				toggle.onChange(async (value) => {
+					this.plugin.settings.includeFullTranscript = value;
 					await this.plugin.saveSettings();
 				});
 			});
