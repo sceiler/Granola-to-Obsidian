@@ -32,7 +32,9 @@ const DEFAULT_SETTINGS = {
 	includeGranolaUrl: false,
 	attendeeTagTemplate: 'person/{name}',
 	existingNoteSearchScope: 'syncDirectory', // 'syncDirectory', 'entireVault', 'specificFolders'
-	specificSearchFolders: [] // Array of folder paths to search in when existingNoteSearchScope is 'specificFolders'
+	specificSearchFolders: [], // Array of folder paths to search in when existingNoteSearchScope is 'specificFolders'
+	enableDateBasedFolders: false,
+	dateFolderFormat: 'YYYY-MM-DD',
 };
 
 class GranolaSyncPlugin extends obsidian.Plugin {
@@ -146,6 +148,72 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 		return hours + ' hours';
 	}
 
+	// Helper function to get a readable speaker label
+	getSpeakerLabel(source) {
+		switch (source) {
+			case "microphone":
+				return "Me";
+			case "system":
+			default:
+				return "Them";
+		}
+	}	
+
+	// Helper function to format timestamp for display
+	formatTimestamp(timestamp) {
+		const d = new Date(timestamp);
+		return [d.getHours(), d.getMinutes(), d.getSeconds()]
+			.map(v => String(v).padStart(2, '0'))
+			.join(':');
+	}
+
+	transcriptToMarkdown(segments) {
+		if (!segments || segments.length === 0) {
+			return "*No transcript content available*";
+		}
+
+		const sortedSegments = segments.slice().sort((a, b) => {
+			const timeA = new Date(a.start_timestamp || 0);
+			const timeB = new Date(b.start_timestamp || 0);
+			return timeA - timeB;
+		});
+
+		const lines = [];
+		let currentSpeaker = null;
+		let currentText = "";
+		let currentTimestamp = null;
+
+		const flushCurrentSegment = () => {
+			const cleanText = currentText.trim().replace(/\s+/g, " ");
+			if (cleanText && currentSpeaker) {
+				const timeStr = this.formatTimestamp(currentTimestamp);
+				const speakerLabel = this.getSpeakerLabel(currentSpeaker);
+				lines.push(`**${speakerLabel}** *(${timeStr})*: ${cleanText}`)
+			}
+			currentText = "";
+			currentSpeaker = null;
+			currentTimestamp = null;
+		};
+
+		for (const segment of sortedSegments) {
+			if (currentSpeaker && currentSpeaker !== segment.source) {
+				flushCurrentSegment();
+			}
+			if (!currentSpeaker) {
+				currentSpeaker = segment.source;
+				currentTimestamp = segment.start_timestamp;
+			}
+			const segmentText = segment.text;
+			if (segmentText && segmentText.trim()) {
+				currentText += currentText ? ` ${segmentText}` : segmentText;
+			}
+		}
+		flushCurrentSegment();
+
+		return lines.length === 0 ? "*No transcript content available*" : lines.join("\n\n");
+
+	}
+
 	async syncNotes() {
 		try {
 			this.updateStatusBar('Syncing');
@@ -171,6 +239,12 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 			for (let i = 0; i < documents.length; i++) {
 				const doc = documents[i];
 				try {
+					// Fetch transcript if enabled
+					if (this.settings.includeFullTranscript) {
+						const transcriptData = await this.fetchTranscript(token, doc.id);
+						doc.transcript = this.transcriptToMarkdown(transcriptData);
+					}
+
 					const success = await this.processDocument(doc);
 					if (success) {
 						syncedCount++;
@@ -275,6 +349,29 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 			return apiResponse.docs;
 		} catch (error) {
 			console.error('Error fetching documents:', error);
+			return null;
+		}
+	}
+
+	async fetchTranscript(token, docId) {
+		try {
+			const response = await obsidian.requestUrl({
+				url: `https://api.granola.ai/v1/get-document-transcript`,
+				method: 'POST',
+				headers: {
+					'Authorization': 'Bearer ' + token,
+					'Content-Type': 'application/json',
+					'Accept': 'application/json',
+				},
+				body: JSON.stringify({
+					'document_id': docId
+				})
+			});
+
+			return response.json;
+
+		} catch (error) {
+			console.error('Error fetching transcript for document ' + docId + ':' + error);
 			return null;
 		}
 	}
@@ -451,6 +548,26 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 		return filename;
 	}
 
+	generateDateBasedPath(doc) {
+		if (!this.settings.enableDateBasedFolders || !doc.created_at) {
+			return this.settings.syncDirectory;
+		}
+
+		const dateFolder = this.formatDate(doc.created_at, this.settings.dateFolderFormat);
+		return path.join(this.settings.syncDirectory, dateFolder);
+	}
+
+	async ensureDateBasedDirectoryExists(datePath) {
+		try {
+			const folder = this.app.vault.getFolderByPath(datePath);
+			if (!folder) {
+				await this.app.vault.createFolder(datePath);
+			}
+		} catch (error) {
+			console.error('Error creating date-based directory:', datePath, error);
+		}
+	}
+
 	/**
 	 * Finds an existing note by its Granola ID based on the configured search scope.
 	 * 
@@ -613,6 +730,7 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 		try {
 			const title = doc.title || 'Untitled Granola Note';
 			const docId = doc.id || 'unknown_id';
+			const transcript = doc.transcript || 'no_transcript';
 
 			let contentToParse = null;
 			if (doc.last_viewed_panel && doc.last_viewed_panel.content && doc.last_viewed_panel.content.type === 'doc') {
@@ -691,7 +809,12 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 
 					// Use the note title (clean, with proper spacing) for the heading
 					const noteTitle = this.generateNoteTitle(doc);
-					const finalMarkdown = frontmatter + '# ' + noteTitle + '\n\n' + markdownContent;
+					let finalMarkdown = frontmatter + '# ' + noteTitle + '\n\n' + markdownContent;
+					// Add transcript section if enabled and transcript is available
+					if (this.settings.includeFullTranscript) {
+						finalMarkdown += '\n\n# Transcript\n\n' + transcript;
+					}
+					
 					await this.app.vault.process(existingFile, () => finalMarkdown);
 					return true;
 				} catch (updateError) {
@@ -745,10 +868,18 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 			
 			frontmatter += '---\n\n';
 
-			const finalMarkdown = frontmatter + markdownContent;
+			let finalMarkdown = frontmatter + markdownContent;
+			// Add transcript section if enabled and transcript is available
+			if (this.settings.includeFullTranscript) {
+				finalMarkdown += '\n\n# Transcript\n\n' + transcript;
+			}
 
 			const filename = this.generateFilename(doc) + '.md';
-			const filepath = path.join(this.settings.syncDirectory, filename);
+			// Use date-based path if enabled, otherwise use sync directory
+			const targetDirectory = this.generateDateBasedPath(doc);
+			const filepath = path.join(targetDirectory, filename);
+
+			await this.ensureDateBasedDirectoryExists(targetDirectory);
 
 			// Check if file with same name already exists
 			let finalFilepath = filepath;
@@ -759,7 +890,7 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 				const timestamp = this.formatDate(doc.created_at, 'HH-mm');
 				const baseFilename = this.generateFilename(doc);
 				const uniqueFilename = baseFilename + '_' + timestamp + '.md'; 
-				finalFilepath = path.join(this.settings.syncDirectory, uniqueFilename);
+				finalFilepath = path.join(targetDirectory, uniqueFilename);
 				
 				// Check if the unique filename also exists
 				const existingUniqueFile = this.app.vault.getAbstractFileByPath(finalFilepath);
@@ -1309,6 +1440,18 @@ class GranolaSyncSettingTab extends obsidian.PluginSettingTab {
 				});
 			});
 
+
+		new obsidian.Setting(containerEl)
+			.setName('Include full transcript')
+			.setDesc('Include the full meeting transcript in each note under a "# Transcript" section. This requires an additional API call per note and may slow down sync.')
+			.addToggle(toggle => {
+				toggle.setValue(this.plugin.settings.includeFullTranscript);
+				toggle.onChange(async (value) => {
+					this.plugin.settings.includeFullTranscript = value;
+					await this.plugin.saveSettings();
+				});
+			});
+
 		new obsidian.Setting(containerEl)
 			.setName('Filename template')
 			.setDesc('Template for filenames. Use {title}, {created_date}, {updated_date}, etc.')
@@ -1351,6 +1494,29 @@ class GranolaSyncSettingTab extends obsidian.PluginSettingTab {
 				toggle.setValue(this.plugin.settings.skipExistingNotes);
 				toggle.onChange(async (value) => {
 					this.plugin.settings.skipExistingNotes = value;
+					await this.plugin.saveSettings();
+				});
+			});
+
+		new obsidian.Setting(containerEl)
+			.setName('Enable date-based folders')
+			.setDesc('Organize notes into subfolders based on their creation date')
+			.addToggle(toggle => {
+				toggle.setValue(this.plugin.settings.enableDateBasedFolders);
+				toggle.onChange(async (value) => {
+					this.plugin.settings.enableDateBasedFolders = value;
+					await this.plugin.saveSettings();
+				});
+			});
+
+		new obsidian.Setting(containerEl)
+			.setName('Date folder format')
+			.setDesc('Format for date-based folder structure. Examples: "YYYY-MM-DD" or "YYYY/MM/DD" subfolders')
+			.addText(text => {
+				text.setPlaceholder('YYYY/MM/DD');
+				text.setValue(this.plugin.settings.dateFolderFormat);
+				text.onChange(async (value) => {
+					this.plugin.settings.dateFolderFormat = value || 'YYYY/MM/DD';
 					await this.plugin.saveSettings();
 				});
 			});
