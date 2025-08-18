@@ -55,7 +55,7 @@ Optional prefix to add to all synced note filenames (e.g., `meeting-`, `granola-
 
 ### Auth Key Path
 Path to your Granola authentication file. Default locations:
-- **macOS**: `Library/Application Support/Granola/supabase.json`
+- **macOS**: `Users/USERNAME/Library/Application Support/Granola/supabase.json`
 - **Windows**: `AppData/Roaming/Granola/supabase.json`
 
 The plugin automatically detects your operating system and sets the appropriate default path.
