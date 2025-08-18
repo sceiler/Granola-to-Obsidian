@@ -1129,8 +1129,6 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 				return null;
 			}
 
-			const { createDailyNote, getDailyNote } = periodicNotesPlugin.api;
-			
 			// Get today's date using the same moment instance that Periodic Notes uses
 			const today = window.moment ? window.moment() : null;
 			if (!today) {
@@ -1138,13 +1136,59 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 				return null;
 			}
 
-			// Try to get existing daily note first, then create if it doesn't exist
-			let dailyNote = getDailyNote(today, false);
-			if (!dailyNote && createDailyNote) {
-				dailyNote = await createDailyNote(today);
+			// Try daily note first (most common case)
+			const { createDailyNote, getDailyNote } = periodicNotesPlugin.api;
+			if (getDailyNote && createDailyNote) {
+				try {
+					let dailyNote = getDailyNote(today, false);
+					if (!dailyNote) {
+						dailyNote = await createDailyNote(today);
+					}
+					if (dailyNote) {
+						console.log('Found/created periodic daily note');
+						return dailyNote;
+					}
+				} catch (dailyError) {
+					console.log('Failed to get daily periodic note:', dailyError);
+				}
 			}
 
-			return dailyNote;
+			// Fallback to weekly note
+			const { createWeeklyNote, getWeeklyNote } = periodicNotesPlugin.api;
+			if (getWeeklyNote && createWeeklyNote) {
+				try {
+					let weeklyNote = getWeeklyNote(today, false);
+					if (!weeklyNote) {
+						weeklyNote = await createWeeklyNote(today);
+					}
+					if (weeklyNote) {
+						console.log('Found/created periodic weekly note');
+						return weeklyNote;
+					}
+				} catch (weeklyError) {
+					console.log('Failed to get weekly periodic note:', weeklyError);
+				}
+			}
+
+			// Fallback to monthly note
+			const { createMonthlyNote, getMonthlyNote } = periodicNotesPlugin.api;
+			if (getMonthlyNote && createMonthlyNote) {
+				try {
+					let monthlyNote = getMonthlyNote(today, false);
+					if (!monthlyNote) {
+						monthlyNote = await createMonthlyNote(today);
+					}
+					if (monthlyNote) {
+						console.log('Found/created periodic monthly note');
+						return monthlyNote;
+					}
+				} catch (monthlyError) {
+					console.log('Failed to get monthly periodic note:', monthlyError);
+				}
+			}
+
+			console.log('No periodic note could be found or created');
+			return null;
 		} catch (error) {
 			console.error('Error getting periodic note:', error);
 			return null;
@@ -1749,7 +1793,7 @@ class GranolaSyncSettingTab extends obsidian.PluginSettingTab {
 
 		new obsidian.Setting(containerEl)
 			.setName('Periodic note integration')
-			.setDesc('Add todays meetings to your periodic daily note (requires Periodic Notes plugin)')
+			.setDesc('Add todays meetings to your periodic notes (daily, weekly, or monthly - requires Periodic Notes plugin)')
 			.addToggle(toggle => {
 				toggle.setValue(this.plugin.settings.enablePeriodicNoteIntegration);
 				toggle.setDisabled(!this.plugin.isPeriodicNotesPluginAvailable());
@@ -1761,7 +1805,7 @@ class GranolaSyncSettingTab extends obsidian.PluginSettingTab {
 
 		new obsidian.Setting(containerEl)
 			.setName('Periodic note section name')
-			.setDesc('The heading name for the Granola meetings section in your periodic note')
+			.setDesc('The heading name for the Granola meetings section in your periodic notes (works with daily, weekly, or monthly notes)')
 			.addText(text => {
 				text.setPlaceholder('## Granola Meetings');
 				text.setValue(this.plugin.settings.periodicNoteSectionName);
