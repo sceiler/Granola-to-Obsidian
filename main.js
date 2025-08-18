@@ -294,24 +294,61 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 	}
 
 	async loadCredentials() {
-		try {
-			const authPath = path.resolve(require('os').homedir(), this.settings.authKeyPath);
-			const credentialsFile = fs.readFileSync(authPath, 'utf8');
-			const data = JSON.parse(credentialsFile);
-			
-			const cognitoTokens = JSON.parse(data.cognito_tokens);
-			const accessToken = cognitoTokens.access_token;
-			
-			if (!accessToken) {
-				console.error('No access token found in credentials file');
-				return null;
+		const homedir = require('os').homedir();
+		const authPaths = [
+			// New location (with Users in path)
+			path.resolve(homedir, 'Users', require('os').userInfo().username, 'Library/Application Support/Granola/supabase.json'),
+			// Current configured path
+			path.resolve(homedir, this.settings.authKeyPath),
+			// Fallback to old default location
+			path.resolve(homedir, 'Library/Application Support/Granola/supabase.json')
+		];
+
+		for (const authPath of authPaths) {
+			try {
+				if (!fs.existsSync(authPath)) {
+					continue;
+				}
+
+				const credentialsFile = fs.readFileSync(authPath, 'utf8');
+				const data = JSON.parse(credentialsFile);
+				
+				let accessToken = null;
+				
+				// Try new token structure (workos_tokens)
+				if (data.workos_tokens) {
+					try {
+						const workosTokens = JSON.parse(data.workos_tokens);
+						accessToken = workosTokens.access_token;
+					} catch (e) {
+						// workos_tokens might already be an object
+						accessToken = data.workos_tokens.access_token;
+					}
+				}
+				
+				// Fallback to old token structure (cognito_tokens)
+				if (!accessToken && data.cognito_tokens) {
+					try {
+						const cognitoTokens = JSON.parse(data.cognito_tokens);
+						accessToken = cognitoTokens.access_token;
+					} catch (e) {
+						// cognito_tokens might already be an object
+						accessToken = data.cognito_tokens.access_token;
+					}
+				}
+				
+				if (accessToken) {
+					console.log('Successfully loaded credentials from:', authPath);
+					return accessToken;
+				}
+			} catch (error) {
+				console.error('Error reading credentials from', authPath, ':', error);
+				continue;
 			}
-			
-			return accessToken;
-		} catch (error) {
-			console.error('Error reading credentials file:', error);
-			return null;
 		}
+
+		console.error('No valid credentials found in any of the expected locations');
+		return null;
 	}
 
 	async fetchGranolaDocuments(token) {
