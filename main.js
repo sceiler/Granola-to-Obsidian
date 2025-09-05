@@ -250,9 +250,9 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 						syncedCount++;
 					}
 					
-					// Check for daily note integration regardless of sync success
+					// Check for note integration regardless of sync success
 					// This ensures existing notes from today are still included
-					if (this.settings.enableDailyNoteIntegration && doc.created_at) {
+					if ((this.settings.enableDailyNoteIntegration || this.settings.enablePeriodicNoteIntegration) && doc.created_at) {
 						const noteDate = new Date(doc.created_at).toDateString();
 						if (noteDate === today) {
 							// Find the actual file that was created or already exists
@@ -277,12 +277,15 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 				}
 			}
 
+			// Create a deep copy to prevent any reference issues
+			const todaysNotesCopy = todaysNotes.map(note => ({...note}));
+			
 			if (this.settings.enableDailyNoteIntegration && todaysNotes.length > 0) {
-				await this.updateDailyNote(todaysNotes);
+				await this.updateDailyNote(todaysNotesCopy);
 			}
 
 			if (this.settings.enablePeriodicNoteIntegration && todaysNotes.length > 0) {
-				await this.updatePeriodicNote(todaysNotes);
+				await this.updatePeriodicNote(todaysNotesCopy);
 			}
 
 			this.updateStatusBar('Complete', syncedCount);
@@ -960,12 +963,10 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 		try {
 			const dailyNote = await this.getDailyNote();
 			if (!dailyNote) {
-				console.log('No daily note found, skipping daily note integration');
 				return;
 			}
 
 			let content = await this.app.vault.read(dailyNote);
-			
 			const sectionHeader = this.settings.dailyNoteSectionName;
 			
 			const notesList = todaysNotes
@@ -1017,12 +1018,10 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 		try {
 			const periodicNote = await this.getPeriodicNote();
 			if (!periodicNote) {
-				console.log('No periodic note found, skipping periodic note integration');
 				return;
 			}
 
 			let content = await this.app.vault.read(periodicNote);
-			
 			const sectionHeader = this.settings.periodicNoteSectionName;
 			
 			const notesList = todaysNotes
@@ -1119,75 +1118,56 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 	async getPeriodicNote() {
 		try {
 			if (!this.isPeriodicNotesPluginAvailable()) {
-				console.log('Periodic Notes plugin not available');
 				return null;
 			}
 
-			const periodicNotesPlugin = this.app.plugins.plugins['periodic-notes'];
-			if (!periodicNotesPlugin || !periodicNotesPlugin.api) {
-				console.log('Periodic Notes plugin API not accessible');
-				return null;
-			}
-
-			// Get today's date using the same moment instance that Periodic Notes uses
-			const today = window.moment ? window.moment() : null;
-			if (!today) {
-				console.log('Moment.js not available for Periodic Notes integration');
-				return null;
-			}
-
-			// Try daily note first (most common case)
-			const { createDailyNote, getDailyNote } = periodicNotesPlugin.api;
-			if (getDailyNote && createDailyNote) {
-				try {
-					let dailyNote = getDailyNote(today, false);
-					if (!dailyNote) {
-						dailyNote = await createDailyNote(today);
-					}
-					if (dailyNote) {
-						console.log('Found/created periodic daily note');
-						return dailyNote;
-					}
-				} catch (dailyError) {
-					console.log('Failed to get daily periodic note:', dailyError);
+			// Since the Periodic Notes API is not accessible, let's try a different approach
+			// Let's try to find the daily note directly by looking for it in the vault
+			
+			// Get today's date
+			const today = new Date();
+			const todayFormatted = today.toISOString().split('T')[0]; // YYYY-MM-DD format
+			
+			// Search for today's daily note in the vault
+			const files = this.app.vault.getMarkdownFiles();
+			
+			// Look for files that might be today's daily note
+			// Priority order: exact date match, then files in Daily Notes folder, then any file with today's date
+			const possibleDailyNotes = files.filter(file => {
+				// First priority: exact date match in filename
+				if (file.name === todayFormatted + '.md' || file.name === todayFormatted) {
+					return true;
 				}
-			}
-
-			// Fallback to weekly note
-			const { createWeeklyNote, getWeeklyNote } = periodicNotesPlugin.api;
-			if (getWeeklyNote && createWeeklyNote) {
-				try {
-					let weeklyNote = getWeeklyNote(today, false);
-					if (!weeklyNote) {
-						weeklyNote = await createWeeklyNote(today);
-					}
-					if (weeklyNote) {
-						console.log('Found/created periodic weekly note');
-						return weeklyNote;
-					}
-				} catch (weeklyError) {
-					console.log('Failed to get weekly periodic note:', weeklyError);
+				// Second priority: files in Daily Notes folder with today's date
+				if (file.path.includes('Daily') && (file.name.includes(todayFormatted) || file.path.includes(todayFormatted))) {
+					return true;
 				}
+				// Third priority: any file with today's date
+				return file.name.includes(todayFormatted) || 
+					   file.path.includes(todayFormatted) ||
+					   file.name.includes(today.toDateString().split(' ')[2]) || // Day of month
+					   file.name.includes(today.getDate().toString());
+			});
+			
+			// Sort by priority: exact date match first, then Daily Notes folder, then others
+			possibleDailyNotes.sort((a, b) => {
+				// Exact date match gets highest priority
+				if (a.name === todayFormatted + '.md' || a.name === todayFormatted) return -1;
+				if (b.name === todayFormatted + '.md' || b.name === todayFormatted) return 1;
+				
+				// Daily Notes folder gets second priority
+				if (a.path.includes('Daily') && !b.path.includes('Daily')) return -1;
+				if (b.path.includes('Daily') && !a.path.includes('Daily')) return 1;
+				
+				// Otherwise maintain original order
+				return 0;
+			});
+			
+			// Return the first match
+			if (possibleDailyNotes.length > 0) {
+				return possibleDailyNotes[0];
 			}
-
-			// Fallback to monthly note
-			const { createMonthlyNote, getMonthlyNote } = periodicNotesPlugin.api;
-			if (getMonthlyNote && createMonthlyNote) {
-				try {
-					let monthlyNote = getMonthlyNote(today, false);
-					if (!monthlyNote) {
-						monthlyNote = await createMonthlyNote(today);
-					}
-					if (monthlyNote) {
-						console.log('Found/created periodic monthly note');
-						return monthlyNote;
-					}
-				} catch (monthlyError) {
-					console.log('Failed to get monthly periodic note:', monthlyError);
-				}
-			}
-
-			console.log('No periodic note could be found or created');
+			
 			return null;
 		} catch (error) {
 			console.error('Error getting periodic note:', error);
@@ -1796,12 +1776,21 @@ class GranolaSyncSettingTab extends obsidian.PluginSettingTab {
 			.setDesc('Add todays meetings to your periodic notes (daily, weekly, or monthly - requires Periodic Notes plugin)')
 			.addToggle(toggle => {
 				toggle.setValue(this.plugin.settings.enablePeriodicNoteIntegration);
-				toggle.setDisabled(!this.plugin.isPeriodicNotesPluginAvailable());
 				toggle.onChange(async (value) => {
 					this.plugin.settings.enablePeriodicNoteIntegration = value;
 					await this.plugin.saveSettings();
 				});
 			});
+
+		// Add a warning if Periodic Notes plugin is not available
+		if (!this.plugin.isPeriodicNotesPluginAvailable()) {
+			const warningEl = containerEl.createEl('div', { cls: 'setting-item' });
+			warningEl.createEl('div', { cls: 'setting-item-info' });
+			const warningNameEl = warningEl.createEl('div', { cls: 'setting-item-name' });
+			warningNameEl.setText('⚠️ Periodic Notes plugin not detected');
+			const warningDescEl = warningEl.createEl('div', { cls: 'setting-item-description' });
+			warningDescEl.setText('The Periodic Notes plugin is not installed or enabled. This integration will not work until the plugin is installed.');
+		}
 
 		new obsidian.Setting(containerEl)
 			.setName('Periodic note section name')
@@ -1859,6 +1848,20 @@ class GranolaSyncSettingTab extends obsidian.PluginSettingTab {
 				button.onClick(async () => {
 					await this.plugin.saveSettings(); // This will call setupAutoSync()
 					new obsidian.Notice('Auto-sync re-enabled with current settings');
+				});
+			});
+
+		new obsidian.Setting(containerEl)
+			.setName('Reset integration settings')
+			.setDesc('Reset Daily Notes and Periodic Notes integration to disabled (useful if toggles seem stuck)')
+			.addButton(button => {
+				button.setButtonText('Reset integrations');
+				button.onClick(async () => {
+					this.plugin.settings.enableDailyNoteIntegration = false;
+					this.plugin.settings.enablePeriodicNoteIntegration = false;
+					await this.plugin.saveSettings();
+					this.display(); // Refresh the settings display
+					new obsidian.Notice('Integration settings reset to disabled');
 				});
 			});
 	}
