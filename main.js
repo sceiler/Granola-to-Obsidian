@@ -35,6 +35,8 @@ const DEFAULT_SETTINGS = {
 	specificSearchFolders: [], // Array of folder paths to search in when existingNoteSearchScope is 'specificFolders'
 	enableDateBasedFolders: false,
 	dateFolderFormat: 'YYYY-MM-DD',
+	enableGranolaFolders: false, // Enable folder-based organization
+	folderTagTemplate: 'folder/{name}', // Template for folder tags
 };
 
 class GranolaSyncPlugin extends obsidian.Plugin {
@@ -232,6 +234,23 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 				return;
 			}
 
+			// Fetch folders if folder support is enabled
+			let folders = null;
+			if (this.settings.enableGranolaFolders) {
+				folders = await this.fetchGranolaFolders(token);
+				if (folders) {
+					// Create a mapping of document ID to folder for quick lookup
+					this.documentToFolderMap = {};
+					for (const folder of folders) {
+						if (folder.document_ids) {
+							for (const docId of folder.document_ids) {
+								this.documentToFolderMap[docId] = folder;
+							}
+						}
+					}
+				}
+			}
+
 			let syncedCount = 0;
 			const todaysNotes = [];
 			const today = new Date().toDateString();
@@ -356,9 +375,6 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 
 	async fetchGranolaDocuments(token) {
 		try {
-			// Note: Workspace fetching is temporarily disabled as folder information is not available
-			let workspaces = null;
-
 			const response = await obsidian.requestUrl({
 				url: 'https://api.granola.ai/v2/get-documents',
 				method: 'POST',
@@ -382,13 +398,42 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 				console.error('API response format is unexpected');
 				return null;
 			}
-
-			// Store workspaces for later use in folder extraction
-			this.workspaces = workspaces;
 			
 			return apiResponse.docs;
 		} catch (error) {
 			console.error('Error fetching documents:', error);
+			return null;
+		}
+	}
+
+	async fetchGranolaFolders(token) {
+		try {
+			const response = await obsidian.requestUrl({
+				url: 'https://api.granola.ai/v1/get-document-lists-metadata',
+				method: 'POST',
+				headers: {
+					'Authorization': 'Bearer ' + token,
+					'Content-Type': 'application/json',
+					'Accept': 'application/json'
+				},
+				body: JSON.stringify({
+					include_document_ids: true,
+					include_only_joined_lists: false
+				})
+			});
+
+			const apiResponse = response.json;
+			
+			if (!apiResponse || !apiResponse.lists) {
+				console.error('Folders API response format is unexpected');
+				return null;
+			}
+
+			// Convert the lists object to an array of folders
+			const folders = Object.values(apiResponse.lists);
+			return folders;
+		} catch (error) {
+			console.error('Error fetching folders:', error);
 			return null;
 		}
 	}
@@ -597,6 +642,25 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 		return path.join(this.settings.syncDirectory, dateFolder);
 	}
 
+	generateFolderBasedPath(doc) {
+		if (!this.settings.enableGranolaFolders || !this.documentToFolderMap) {
+			return this.settings.syncDirectory;
+		}
+
+		const folder = this.documentToFolderMap[doc.id];
+		if (!folder || !folder.title) {
+			return this.settings.syncDirectory;
+		}
+
+		// Clean folder name for filesystem use
+		const cleanFolderName = folder.title
+			.replace(/[<>:"/\\|?*]/g, '') // Remove invalid filesystem characters
+			.replace(/\s+/g, '_') // Replace spaces with underscores
+			.trim();
+
+		return path.join(this.settings.syncDirectory, cleanFolderName);
+	}
+
 	async ensureDateBasedDirectoryExists(datePath) {
 		try {
 			const folder = this.app.vault.getFolderByPath(datePath);
@@ -605,6 +669,17 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 			}
 		} catch (error) {
 			console.error('Error creating date-based directory:', datePath, error);
+		}
+	}
+
+	async ensureFolderBasedDirectoryExists(folderPath) {
+		try {
+			const folder = this.app.vault.getFolderByPath(folderPath);
+			if (!folder) {
+				await this.app.vault.createFolder(folderPath);
+			}
+		} catch (error) {
+			console.error('Error creating folder-based directory:', folderPath, error);
 		}
 	}
 
@@ -915,11 +990,16 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 			}
 
 			const filename = this.generateFilename(doc) + '.md';
-			// Use date-based path if enabled, otherwise use sync directory
-			const targetDirectory = this.generateDateBasedPath(doc);
+			// Use folder-based path if enabled, otherwise date-based, otherwise sync directory
+			let targetDirectory;
+			if (this.settings.enableGranolaFolders) {
+				targetDirectory = this.generateFolderBasedPath(doc);
+				await this.ensureFolderBasedDirectoryExists(targetDirectory);
+			} else {
+				targetDirectory = this.generateDateBasedPath(doc);
+				await this.ensureDateBasedDirectoryExists(targetDirectory);
+			}
 			const filepath = path.join(targetDirectory, filename);
-
-			await this.ensureDateBasedDirectoryExists(targetDirectory);
 
 			// Check if file with same name already exists
 			let finalFilepath = filepath;
@@ -1280,64 +1360,22 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 	}
 
 	extractFolderNames(doc) {
-		// Note: Folder functionality is currently disabled as folder information 
-		// is not available in the Granola API response. This method is kept for future use.
-		return [];
-		
-		/* 
-		// Code preserved for when Granola API includes folder information
 		const folderNames = [];
 		
 		try {
-			// Handle single workspace_id
-			if (doc.workspace_id && this.workspaces) {
-				const folderName = this.findWorkspaceName(doc.workspace_id);
-				if (folderName) {
-					folderNames.push(folderName);
+			// Check if folder support is enabled and we have folder mapping
+			if (this.settings.enableGranolaFolders && this.documentToFolderMap) {
+				const folder = this.documentToFolderMap[doc.id];
+				if (folder && folder.title) {
+					folderNames.push(folder.title);
 				}
 			}
-			
-			// Handle multiple workspace IDs (if they exist)
-			if (doc.workspace_ids && Array.isArray(doc.workspace_ids) && this.workspaces) {
-				doc.workspace_ids.forEach(wsId => {
-					const folderName = this.findWorkspaceName(wsId);
-					if (folderName && !folderNames.includes(folderName)) {
-						folderNames.push(folderName);
-					}
-				});
-			}
-			
-			// Handle list IDs (single and multiple)
-			if (doc.list_id && this.workspaces) {
-				const folderName = this.findWorkspaceName(doc.list_id);
-				if (folderName && !folderNames.includes(folderName)) {
-					folderNames.push(folderName);
-				}
-			}
-			
-			if (doc.list_ids && Array.isArray(doc.list_ids) && this.workspaces) {
-				doc.list_ids.forEach(listId => {
-					const folderName = this.findWorkspaceName(listId);
-					if (folderName && !folderNames.includes(folderName)) {
-						folderNames.push(folderName);
-					}
-				});
-			}
-			
-			// Check legacy folder properties
-			const legacyFields = ['folder_name', 'folder', 'directory'];
-			legacyFields.forEach(field => {
-				if (doc[field] && !folderNames.includes(doc[field])) {
-					folderNames.push(doc[field]);
-				}
-			});
 			
 			return folderNames;
 		} catch (error) {
 			console.error('Error extracting folder names:', error);
 			return [];
 		}
-		*/
 	}
 
 	findWorkspaceName(workspaceId) {
@@ -1384,16 +1422,19 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 				
 				// Convert folder name to valid tag format
 				// Remove special characters, replace spaces with hyphens, convert to lowercase
-				let tag = folderName
+				let cleanName = folderName
 					.replace(/[^\w\s-]/g, '') // Remove special chars except spaces and hyphens
 					.trim()
 					.replace(/\s+/g, '-') // Replace spaces with hyphens
 					.toLowerCase();
 				
-				// Add folder/ prefix for better organization
-				tag = 'folder/' + tag;
+				// Use the customizable tag template
+				let tag = this.settings.folderTagTemplate.replace('{name}', cleanName);
 				
-				if (tag && tag !== 'folder/' && !tags.includes(tag)) {
+				// Ensure the tag is valid (no double slashes, etc.)
+				tag = tag.replace(/\/+/g, '/').replace(/^\/|\/$/g, '');
+				
+				if (tag && !tags.includes(tag)) {
 					tags.push(tag);
 				}
 			}
@@ -1464,6 +1505,11 @@ class GranolaSyncSettingTab extends obsidian.PluginSettingTab {
 	display() {
 		const containerEl = this.containerEl;
 		containerEl.empty();
+
+		// Debug: Log all settings
+		console.log('All plugin settings:', this.plugin.settings);
+		console.log('enableGranolaFolders value:', this.plugin.settings.enableGranolaFolders);
+		console.log('enableGranolaFolders type:', typeof this.plugin.settings.enableGranolaFolders);
 
 		new obsidian.Setting(containerEl)
 			.setName('Note prefix')
@@ -1719,17 +1765,17 @@ class GranolaSyncSettingTab extends obsidian.PluginSettingTab {
 				});
 			});
 
-		// Note: Folder tags setting is temporarily hidden as folder information is not yet available in Granola API
-		// new obsidian.Setting(containerEl)
-		// 	.setName('Include Folder Tags')
-		// 	.setDesc('Add Granola folder/list names as tags in the frontmatter of each note. Supports multiple folders per note (e.g., folder/test-folder, folder/project-alpha)')
-		// 	.addToggle(toggle => {
-		// 		toggle.setValue(this.plugin.settings.includeFolderTags);
-		// 		toggle.onChange(async (value) => {
-		// 			this.plugin.settings.includeFolderTags = value;
-		// 			await this.plugin.saveSettings();
-		// 		});
-		// 	});
+		new obsidian.Setting(containerEl)
+			.setName('Include folder tags')
+			.setDesc('Add Granola folder names as tags in the frontmatter of each note (requires Granola folders to be enabled)')
+			.addToggle(toggle => {
+				toggle.setValue(this.plugin.settings.includeFolderTags);
+				toggle.setDisabled(!this.plugin.settings.enableGranolaFolders);
+				toggle.onChange(async (value) => {
+					this.plugin.settings.includeFolderTags = value;
+					await this.plugin.saveSettings();
+				});
+			});
 
 		new obsidian.Setting(containerEl)
 			.setName('Include Granola URL')
@@ -1804,6 +1850,69 @@ class GranolaSyncSettingTab extends obsidian.PluginSettingTab {
 				});
 			});
 
+		// Create a heading for Granola folders
+		containerEl.createEl('h3', {text: 'Granola folders'});
+
+		// Debug: Add a simple test toggle first
+		new obsidian.Setting(containerEl)
+			.setName('Test toggle (should work)')
+			.setDesc('This is a test toggle to verify toggle functionality works')
+			.addToggle(toggle => {
+				toggle.setValue(false);
+				toggle.onChange(async (value) => {
+					console.log('Test toggle changed to:', value);
+					new obsidian.Notice('Test toggle works! Value: ' + value);
+				});
+			});
+
+		// Replace the problematic toggle with a button-based approach
+		const folderSetting = new obsidian.Setting(containerEl)
+			.setName('Enable Granola folders')
+			.setDesc('Organize notes into folders based on Granola folder structure. This will create subfolders in your sync directory for each Granola folder.')
+			.addButton(button => {
+				// Ensure the setting exists and has a default value
+				if (this.plugin.settings.enableGranolaFolders === undefined) {
+					this.plugin.settings.enableGranolaFolders = false;
+				}
+				
+				const updateButton = () => {
+					if (this.plugin.settings.enableGranolaFolders) {
+						button.setButtonText('Disable Granola folders');
+						button.setCta();
+					} else {
+						button.setButtonText('Enable Granola folders');
+						button.setCta(false);
+					}
+				};
+				
+				updateButton();
+				
+				button.onClick(async () => {
+					this.plugin.settings.enableGranolaFolders = !this.plugin.settings.enableGranolaFolders;
+					await this.plugin.saveSettings();
+					updateButton();
+					this.display(); // Refresh the settings display
+					new obsidian.Notice(`Granola folders ${this.plugin.settings.enableGranolaFolders ? 'enabled' : 'disabled'}`);
+				});
+			});
+
+		new obsidian.Setting(containerEl)
+			.setName('Folder tag template')
+			.setDesc('Customize the structure of folder tags. Use {name} as placeholder for the folder name. Examples: "folder/{name}", "granola/{name}", "meeting-folders/{name}"')
+			.addText(text => {
+				text.setPlaceholder('folder/{name}');
+				text.setValue(this.plugin.settings.folderTagTemplate);
+				text.setDisabled(!this.plugin.settings.enableGranolaFolders);
+				text.onChange(async (value) => {
+					// Validate the template has {name} placeholder
+					if (!value.includes('{name}')) {
+						new obsidian.Notice('Warning: Tag template should include {name} placeholder');
+					}
+					this.plugin.settings.folderTagTemplate = value || 'folder/{name}';
+					await this.plugin.saveSettings();
+				});
+			});
+
 		// Create a heading for file organization settings
 		containerEl.createEl('h3', {text: 'File organization'});
 
@@ -1862,6 +1971,21 @@ class GranolaSyncSettingTab extends obsidian.PluginSettingTab {
 					await this.plugin.saveSettings();
 					this.display(); // Refresh the settings display
 					new obsidian.Notice('Integration settings reset to disabled');
+				});
+			});
+
+		new obsidian.Setting(containerEl)
+			.setName('Reset folder settings')
+			.setDesc('Reset Granola folder settings to default values (useful if toggles seem stuck)')
+			.addButton(button => {
+				button.setButtonText('Reset folder settings');
+				button.onClick(async () => {
+					this.plugin.settings.enableGranolaFolders = false;
+					this.plugin.settings.includeFolderTags = false;
+					this.plugin.settings.folderTagTemplate = 'folder/{name}';
+					await this.plugin.saveSettings();
+					this.display(); // Refresh the settings display
+					new obsidian.Notice('Folder settings reset to defaults');
 				});
 			});
 	}
