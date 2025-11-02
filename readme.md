@@ -5,7 +5,7 @@
 
 An Obsidian plugin that automatically syncs your [Granola AI](https://granola.ai) meeting notes to your Obsidian vault with full customization options and real-time status updates.
 
-![Granola Sync Plugin](https://img.shields.io/badge/Obsidian-Plugin-purple) ![Version](https://img.shields.io/badge/version-1.6.3-blue) ![License](https://img.shields.io/badge/license-MIT-green)
+![Granola Sync Plugin](https://img.shields.io/badge/Obsidian-Plugin-purple) ![Version](https://img.shields.io/badge/version-1.7.0-blue) ![License](https://img.shields.io/badge/license-MIT-green)
 
 ![Granola Sync](https://i.imgur.com/EmFRYTO.png)
 
@@ -27,6 +27,10 @@ An Obsidian plugin that automatically syncs your [Granola AI](https://granola.ai
 - **✨ Rich Metadata**: Includes frontmatter with creation/update dates and Granola IDs
 - **📋 Content Conversion**: Converts ProseMirror content to clean Markdown
 - **🔄 Update Handling**: Intelligently updates existing notes instead of creating duplicates
+- **🔍 Duplicate Detection**: Find and review duplicate notes with the "Find Duplicate Granola Notes" command
+- **⚙️ Customizable Filename Separators**: Choose how words are separated in filenames (underscore, dash, or no separator)
+- **🛡️ Smart File Conflict Handling**: Skip duplicate filenames or create timestamped versions automatically
+- **📁 Granola Folder Organization**: Mirror your Granola folder structure in Obsidian with automatic folder-based tagging
 
 ## 📦 Installation
 
@@ -144,6 +148,28 @@ Choose how often to automatically sync:
 - Every 5-15 minutes (recommended)
 - Every 30 minutes to 24 hours (conservative)
 
+### Filename Separator
+Customize how words are separated in generated filenames:
+- `_` (underscore) - Default: `Team_Standup_Meeting.md`
+- `-` (dash): `Team-Standup-Meeting.md`
+- `` (none): `TeamStandupMeeting.md`
+
+**Use Case**: Match your preferred naming convention or organizational standards.
+
+### File Conflict Handling
+Choose what happens when a file with the same name already exists:
+- **Skip** - Don't create a new file (preserves existing file)
+- **Timestamp** - Create a timestamped version (e.g., `Meeting_14-30.md`)
+
+**Use Case**: Prevents accidental overwrites while giving you flexibility in conflict resolution.
+
+### Granola Folder Organization
+Automatically organize synced notes to mirror your Granola folder structure:
+- **Enable Granola Folders**: Organize notes by their Granola folder
+- **Folder Tag Template**: Customize how folder hierarchy becomes tags (e.g., `folder/{name}`)
+
+**Example**: A note in Granola's "Team Meetings/Standups" folder becomes tagged as `folder/Team_Meetings` and `folder/Standups`.
+
 ## 🎯 Usage
 
 ### Manual Sync
@@ -161,6 +187,21 @@ Set your preferred frequency in settings and the plugin will sync automatically 
 - **"Granola Sync: X notes synced"** - Success (shows for 3 seconds)
 - **"Granola Sync: Error - [details]"** - Error occurred (shows for 5 seconds)
 
+### Find Duplicate Granola Notes
+Identify and manage duplicate notes that may have been created across multiple sync cycles.
+
+**How to use:**
+- Click the search icon in the ribbon (left sidebar)
+- Use Command Palette: "Find Duplicate Granola Notes"
+- The plugin scans your vault for notes with duplicate Granola IDs and creates a report file
+
+**Output**: A duplicates report file listing all conflicts with their locations, making it easy to:
+- Review which notes are duplicates
+- Decide which versions to keep
+- Clean up your vault manually if needed
+
+**Note**: This uses the `granola_id` in frontmatter to identify duplicates, so renamed files are correctly recognized.
+
 ### Skip Existing Notes
 When enabled, notes that already exist in your vault will not be updated during sync. This is perfect for preserving any manual additions you've made such as:
 - Custom tags
@@ -177,6 +218,34 @@ When enabled, notes that already exist in your vault will not be updated during 
 As long as you don't modify the `granola_id` field, the plugin will recognize them as the same note.
 
 **Note**: New notes from Granola will still be imported, but existing ones won't be overwritten.
+
+### Duplicate Detection & File Management
+
+This release includes robust duplicate and file conflict management:
+
+#### Find Duplicate Notes
+- **New Command**: Scans vault for notes with duplicate Granola IDs
+- **Report Output**: Creates a dedicated duplicates file for easy review
+- **Usage**: Ribbon icon or Command Palette → "Find Duplicate Granola Notes"
+
+#### File Conflict Handling
+Control how the plugin handles naming conflicts:
+- **Skip Mode**: Don't create new files if a name already exists
+- **Timestamp Mode**: Add timestamps to create unique filenames automatically
+
+#### Why Use These Tools:
+- **Avoid accidental duplicates**: Sync can create duplicates when notes have the same title or filename
+- **Clean vault management**: Identify problematic duplicates and clean them up
+- **Prevent overwrites**: Choose whether to skip or timestamp when conflicts occur
+
+#### How to Use:
+1. Run "Find Duplicate Granola Notes" to scan for existing duplicates
+2. Review the generated report file
+3. Manually clean up duplicates if needed
+4. Set your preferred `existingFileAction` in settings for future syncs
+5. Re-run sync with confidence
+
+---
 
 ### 🧪 Experimental: Search Scope for Existing Notes
 
@@ -197,7 +266,7 @@ This experimental feature allows you to control where the plugin searches for ex
 #### How to Use Safely:
 1. **Backup your vault first!**
 2. **Test with manual sync**: Change settings, then run manual sync to test
-3. **Use the tools**: 
+3. **Use the tools**:
    - "Find Duplicate Notes" - scan for existing duplicates
    - "Re-enable Auto-Sync" - restart auto-sync after testing
 4. **Consider "Entire Vault"**: Safest option if you want to move notes around
@@ -218,7 +287,7 @@ This experimental feature allows you to control where the plugin searches for ex
 - **If you get duplicates**: Use "Find Duplicate Notes" tool to identify and clean them up
 
 #### Settings Location:
-Under **🧪 Experimental Features** section in plugin settings.
+Under **File Management & Duplicates** section in plugin settings.
 
 ### Daily Note Integration
 When enabled, today's Granola meetings automatically appear in your Daily Note:
@@ -337,6 +406,12 @@ Your converted meeting content appears here in clean Markdown format.
 - **Missing attendees**: Some meeting platforms may not provide complete attendee information
 - **Duplicate tags**: The plugin automatically prevents duplicate tags - check for variations in name formatting
 - **Tags not updating**: Ensure both "Skip Existing Notes" and "Include Attendee Tags" are enabled for updates
+
+### Duplicate Notes Issues
+- **Seeing duplicates**: Use "Find Duplicate Granola Notes" command to identify and review them
+- **Want to prevent duplicates**: Set "File Conflict Handling" to either "Skip" or "Timestamp"
+- **Duplicates created during sync**: Likely from multiple sync runs with same notes - use the duplicate finder to clean up
+- **Can't find duplicates tool**: Check ribbon icons (left sidebar) or use Command Palette
 
 ## 🤝 Contributing
 
