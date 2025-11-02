@@ -865,8 +865,8 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 		for (let i = 0; i < duplicates.length; i++) {
 			const duplicate = duplicates[i];
 			report += `## Duplicate Set ${i + 1}: ${duplicate.granolaId}\n\n`;
-			report += '| File | Link |\n';
-			report += '|------|------|\n';
+			report += '| Filename | Link |\n';
+			report += '|----------|------|\n';
 
 			for (const file of duplicate.files) {
 				const fileName = file.path;
