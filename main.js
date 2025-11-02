@@ -78,6 +78,14 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 			}
 		});
 
+		this.addCommand({
+			id: 'find-duplicate-granola-notes',
+			name: 'Find Duplicate Granola Notes',
+			callback: () => {
+				this.findDuplicatesAndOpen();
+			}
+		});
+
 		this.addSettingTab(new GranolaSyncSettingTab(this.app, this));
 
 		window.setTimeout(() => {
