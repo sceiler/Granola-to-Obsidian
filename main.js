@@ -903,16 +903,15 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 				}
 			}
 
-			// Check if file exists
+			// Check if file exists and delete it
 			const existingFile = this.app.vault.getAbstractFileByPath(duplicatesPath);
-
 			if (existingFile && existingFile instanceof obsidian.TFile) {
-				// Update existing file
-				await this.app.vault.modify(existingFile, report);
-			} else {
-				// Create new file
-				await this.app.vault.create(duplicatesPath, report);
+				// Delete the existing file
+				await this.app.vault.delete(existingFile);
 			}
+
+			// Create new file
+			await this.app.vault.create(duplicatesPath, report);
 
 			// Open the report file
 			const reportFile = this.app.vault.getAbstractFileByPath(duplicatesPath);
