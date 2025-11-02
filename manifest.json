@@ -1,6 +1,6 @@
 {
 	"id": "granola-sync",
-	"name": "Granola Sync",
+	"name": "Granola to Obsidian Sync",
 	"version": "1.6.3",
 	"minAppVersion": "1.6.6",
 	"description": "Sync your Granola AI notes to your vault with customizable settings.",
