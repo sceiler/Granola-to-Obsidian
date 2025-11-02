@@ -38,6 +38,7 @@ const DEFAULT_SETTINGS = {
 	enableGranolaFolders: false, // Enable folder-based organization
 	folderTagTemplate: 'folder/{name}', // Template for folder tags
 	filenameSeparator: '_', // Character to separate words in filenames ('_', '-', or '')
+	existingFileAction: 'timestamp', // 'timestamp' - create timestamped version, 'skip' - ignore existing file
 };
 
 class GranolaSyncPlugin extends obsidian.Plugin {
@@ -962,191 +963,194 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 	}
 
 	async processDocument(doc) {
-		try {
-			const title = doc.title || 'Untitled Granola Note';
-			const docId = doc.id || 'unknown_id';
-			const transcript = doc.transcript || 'no_transcript';
+	try {
+		const title = doc.title || 'Untitled Granola Note';
+		const docId = doc.id || 'unknown_id';
+		const transcript = doc.transcript || 'no_transcript';
 
-			let contentToParse = null;
-			if (doc.last_viewed_panel && doc.last_viewed_panel.content && doc.last_viewed_panel.content.type === 'doc') {
-				contentToParse = doc.last_viewed_panel.content;
+		let contentToParse = null;
+		if (doc.last_viewed_panel && doc.last_viewed_panel.content && doc.last_viewed_panel.content.type === 'doc') {
+			contentToParse = doc.last_viewed_panel.content;
+		}
+
+		if (!contentToParse) {
+			return false;
+		}
+
+		// Check if note already exists by Granola ID
+		const existingFile = await this.findExistingNoteByGranolaId(docId);
+		
+		if (existingFile) {
+			if (this.settings.skipExistingNotes && !this.settings.includeAttendeeTags && !this.settings.includeGranolaUrl) {
+				return true; // Return true so it counts as "synced" but we don't update
 			}
-
-			if (!contentToParse) {
-				return false;
-			}
-
-			// Check if note already exists by Granola ID
-			const existingFile = await this.findExistingNoteByGranolaId(docId);
 			
-			if (existingFile) {
-				if (this.settings.skipExistingNotes && !this.settings.includeAttendeeTags && !this.settings.includeGranolaUrl) {
-					return true; // Return true so it counts as "synced" but we don't update
-				}
-				
-				if (this.settings.skipExistingNotes && (this.settings.includeAttendeeTags || this.settings.includeGranolaUrl)) {
-					// Only update metadata (tags, URLs), preserve existing content
-					try {
-						await this.updateExistingNoteMetadata(existingFile, doc);
-						return true;
-					} catch (error) {
-						console.error('Error updating metadata for existing note:', error);
-						return false;
-					}
-				}
-
-				// Update existing note (full update)
+			if (this.settings.skipExistingNotes && (this.settings.includeAttendeeTags || this.settings.includeGranolaUrl)) {
+				// Only update metadata (tags, URLs), preserve existing content
 				try {
-					const markdownContent = this.convertProseMirrorToMarkdown(contentToParse);
-
-					// Extract attendee information
-					const attendeeNames = this.extractAttendeeNames(doc);
-					const attendeeTags = this.generateAttendeeTags(attendeeNames);
-					
-					// Extract folder information
-					const folderNames = this.extractFolderNames(doc);
-					const folderTags = this.generateFolderTags(folderNames);
-					
-					// Generate Granola URL
-					const granolaUrl = this.generateGranolaUrl(docId);
-					
-
-
-					// Combine all tags
-					const allTags = [...attendeeTags, ...folderTags];
-
-					// Create frontmatter with original title
-					let frontmatter = '---\n';
-					frontmatter += 'granola_id: ' + docId + '\n';
-					const escapedTitle = title.replace(/"/g, '\\"');
-					frontmatter += 'title: "' + escapedTitle + '"\n';
-					
-					if (granolaUrl) {
-						frontmatter += 'granola_url: "' + granolaUrl + '"\n';
-					}
-					
-					if (doc.created_at) {
-						frontmatter += 'created_at: ' + doc.created_at + '\n';
-					}
-					if (doc.updated_at) {
-						frontmatter += 'updated_at: ' + doc.updated_at + '\n';
-					}
-					
-					// Add all tags if any were found
-					if (allTags.length > 0) {
-						frontmatter += 'tags:\n';
-						for (const tag of allTags) {
-							frontmatter += '  - ' + tag + '\n';
-						}
-					}
-					
-					frontmatter += '---\n\n';
-
-					// Use the note title (clean, with proper spacing) for the heading
-					const noteTitle = this.generateNoteTitle(doc);
-					let finalMarkdown = frontmatter + '# ' + noteTitle + '\n\n' + markdownContent;
-					// Add transcript section if enabled and transcript is available
-					if (this.settings.includeFullTranscript) {
-						finalMarkdown += '\n\n# Transcript\n\n' + transcript;
-					}
-					
-					await this.app.vault.process(existingFile, () => finalMarkdown);
+					await this.updateExistingNoteMetadata(existingFile, doc);
 					return true;
-				} catch (updateError) {
-					console.error('Error updating existing note:', updateError);
+				} catch (error) {
+					console.error('Error updating metadata for existing note:', error);
 					return false;
 				}
 			}
 
-			// Create new note
-			const markdownContent = this.convertProseMirrorToMarkdown(contentToParse);
-			
-			// Extract attendee information
-			const attendeeNames = this.extractAttendeeNames(doc);
-			const attendeeTags = this.generateAttendeeTags(attendeeNames);
-			
-			// Extract folder information
-			const folderNames = this.extractFolderNames(doc);
-			const folderTags = this.generateFolderTags(folderNames);
-			
-			// Generate Granola URL
-			const granolaUrl = this.generateGranolaUrl(docId);
-			
+			// Update existing note (full update)
+			try {
+				const markdownContent = this.convertProseMirrorToMarkdown(contentToParse);
 
+				// Extract attendee information
+				const attendeeNames = this.extractAttendeeNames(doc);
+				const attendeeTags = this.generateAttendeeTags(attendeeNames);
+				
+				// Extract folder information
+				const folderNames = this.extractFolderNames(doc);
+				const folderTags = this.generateFolderTags(folderNames);
+				
+				// Generate Granola URL
+				const granolaUrl = this.generateGranolaUrl(docId);
+				
 
-			// Combine all tags
-			const allTags = [...attendeeTags, ...folderTags];
+				// Combine all tags
+				const allTags = [...attendeeTags, ...folderTags];
 
-			let frontmatter = '---\n';
-			frontmatter += 'granola_id: ' + docId + '\n';
-			const escapedTitle = title.replace(/"/g, '\\"');
-			frontmatter += 'title: "' + escapedTitle + '"\n';
-			
-			if (granolaUrl) {
-				frontmatter += 'granola_url: "' + granolaUrl + '"\n';
-			}
-			
-			if (doc.created_at) {
-				frontmatter += 'created_at: ' + doc.created_at + '\n';
-			}
-			if (doc.updated_at) {
-				frontmatter += 'updated_at: ' + doc.updated_at + '\n';
-			}
-			
-			// Add all tags if any were found
-			if (allTags.length > 0) {
-				frontmatter += 'tags:\n';
-				for (const tag of allTags) {
-					frontmatter += '  - ' + tag + '\n';
+				// Create frontmatter with original title
+				let frontmatter = '---\n';
+				frontmatter += 'granola_id: ' + docId + '\n';
+				const escapedTitle = title.replace(/"/g, '\\"');
+				frontmatter += 'title: "' + escapedTitle + '"\n';
+				
+				if (granolaUrl) {
+					frontmatter += 'granola_url: "' + granolaUrl + '"\n';
 				}
-			}
-			
-			frontmatter += '---\n\n';
+				
+				if (doc.created_at) {
+					frontmatter += 'created_at: ' + doc.created_at + '\n';
+				}
+				if (doc.updated_at) {
+					frontmatter += 'updated_at: ' + doc.updated_at + '\n';
+				}
+				
+				// Add all tags if any were found
+				if (allTags.length > 0) {
+					frontmatter += 'tags:\n';
+					for (const tag of allTags) {
+						frontmatter += '  - ' + tag + '\n';
+					}
+				}
+				
+				frontmatter += '---\n\n';
 
-			let finalMarkdown = frontmatter + markdownContent;
-			// Add transcript section if enabled and transcript is available
-			if (this.settings.includeFullTranscript) {
-				finalMarkdown += '\n\n# Transcript\n\n' + transcript;
+				// Use the note title (clean, with proper spacing) for the heading
+				const noteTitle = this.generateNoteTitle(doc);
+				let finalMarkdown = frontmatter + '# ' + noteTitle + '\n\n' + markdownContent;
+				// Add transcript section if enabled and transcript is available
+				if (this.settings.includeFullTranscript) {
+					finalMarkdown += '\n\n# Transcript\n\n' + transcript;
+				}
+				
+				await this.app.vault.process(existingFile, () => finalMarkdown);
+				return true;
+			} catch (updateError) {
+				console.error('Error updating existing note:', updateError);
+				return false;
 			}
+		}
 
-			const filename = this.generateFilename(doc) + '.md';
-			// Use folder-based path if enabled, otherwise date-based, otherwise sync directory
-			let targetDirectory;
-			if (this.settings.enableGranolaFolders) {
-				targetDirectory = this.generateFolderBasedPath(doc);
-				await this.ensureFolderBasedDirectoryExists(targetDirectory);
-			} else {
-				targetDirectory = this.generateDateBasedPath(doc);
-				await this.ensureDateBasedDirectoryExists(targetDirectory);
+		// Create new note
+		const markdownContent = this.convertProseMirrorToMarkdown(contentToParse);
+		
+		// Extract attendee information
+		const attendeeNames = this.extractAttendeeNames(doc);
+		const attendeeTags = this.generateAttendeeTags(attendeeNames);
+		
+		// Extract folder information
+		const folderNames = this.extractFolderNames(doc);
+		const folderTags = this.generateFolderTags(folderNames);
+		
+		// Generate Granola URL
+		const granolaUrl = this.generateGranolaUrl(docId);
+		
+
+		// Combine all tags
+		const allTags = [...attendeeTags, ...folderTags];
+
+		let frontmatter = '---\n';
+		frontmatter += 'granola_id: ' + docId + '\n';
+		const escapedTitle = title.replace(/"/g, '\\"');
+		frontmatter += 'title: "' + escapedTitle + '"\n';
+		
+		if (granolaUrl) {
+			frontmatter += 'granola_url: "' + granolaUrl + '"\n';
+		}
+		
+		if (doc.created_at) {
+			frontmatter += 'created_at: ' + doc.created_at + '\n';
+		}
+		if (doc.updated_at) {
+			frontmatter += 'updated_at: ' + doc.updated_at + '\n';
+		}
+		
+		// Add all tags if any were found
+		if (allTags.length > 0) {
+			frontmatter += 'tags:\n';
+			for (const tag of allTags) {
+				frontmatter += '  - ' + tag + '\n';
 			}
-			const filepath = path.join(targetDirectory, filename);
+		}
+		
+		frontmatter += '---\n\n';
 
-			// Check if file with same name already exists
-			let finalFilepath = filepath;
-			const existingFileByName = this.app.vault.getAbstractFileByPath(filepath);
-			if (existingFileByName) {
-				// Create a unique filename by appending timestamp or ID
-				const createdDate = new Date(doc.created_at);
+		let finalMarkdown = frontmatter + markdownContent;
+		// Add transcript section if enabled and transcript is available
+		if (this.settings.includeFullTranscript) {
+			finalMarkdown += '\n\n# Transcript\n\n' + transcript;
+		}
+
+		const filename = this.generateFilename(doc) + '.md';
+		// Use folder-based path if enabled, otherwise date-based, otherwise sync directory
+		let targetDirectory;
+		if (this.settings.enableGranolaFolders) {
+			targetDirectory = this.generateFolderBasedPath(doc);
+			await this.ensureFolderBasedDirectoryExists(targetDirectory);
+		} else {
+			targetDirectory = this.generateDateBasedPath(doc);
+			await this.ensureDateBasedDirectoryExists(targetDirectory);
+		}
+		const filepath = path.join(targetDirectory, filename);
+
+		// Check if file with same name already exists
+		let finalFilepath = filepath;
+		const existingFileByName = this.app.vault.getAbstractFileByPath(filepath);
+		if (existingFileByName) {
+			// Handle existing file based on user's preference
+			if (this.settings.existingFileAction === 'skip') {
+				// Skip creating a new file if one with the same name exists
+				return false;
+			} else if (this.settings.existingFileAction === 'timestamp') {
+				// Create a unique filename by appending timestamp
 				const timestamp = this.formatDate(doc.created_at, 'HH-mm');
 				const baseFilename = this.generateFilename(doc);
-				const uniqueFilename = baseFilename + '_' + timestamp + '.md'; 
+				const uniqueFilename = baseFilename + '_' + timestamp + '.md';
 				finalFilepath = path.join(targetDirectory, uniqueFilename);
-				
+
 				// Check if the unique filename also exists
 				const existingUniqueFile = this.app.vault.getAbstractFileByPath(finalFilepath);
 				if (existingUniqueFile) {
 					return false;
 				}
 			}
-
-			await this.app.vault.create(finalFilepath, finalMarkdown);
-			return true;
-
-		} catch (error) {
-			console.error('Error processing document:', error);
-			return false;
 		}
+
+		await this.app.vault.create(finalFilepath, finalMarkdown);
+		return true;
+
+	} catch (error) {
+		console.error('Error processing document:', error);
+		return false;
 	}
+}
 
 	async ensureDirectoryExists() {
 		try {
@@ -1703,6 +1707,20 @@ class GranolaSyncSettingTab extends obsidian.PluginSettingTab {
 				dropdown.setValue(this.plugin.settings.filenameSeparator);
 				dropdown.onChange(async (value) => {
 					this.plugin.settings.filenameSeparator = value;
+					await this.plugin.saveSettings();
+				});
+			});
+
+		new obsidian.Setting(containerEl)
+			.setName('When file already exists by name')
+			.setDesc('Choose what to do when syncing a note with a filename that already exists')
+			.addDropdown(dropdown => {
+				dropdown.addOption('timestamp', 'Create timestamped version (e.g., filename_13-40.md)');
+				dropdown.addOption('skip', 'Skip the file and don\'t create a new version');
+
+				dropdown.setValue(this.plugin.settings.existingFileAction);
+				dropdown.onChange(async (value) => {
+					this.plugin.settings.existingFileAction = value;
 					await this.plugin.saveSettings();
 				});
 			});
