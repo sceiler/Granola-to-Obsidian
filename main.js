@@ -779,7 +779,7 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 		return allFolders.map(folder => folder.path).sort();
 	}
 
-	async findDuplicateNotes() {
+	async findDuplicateNotes(suppressNotice = false) {
 		try {
 			// Get all markdown files in the vault
 			const allFiles = this.app.vault.getMarkdownFiles();
@@ -821,31 +821,35 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 				}
 			}
 
-			if (duplicates.length === 0) {
-				new obsidian.Notice('No duplicate Granola notes found! 🎉');
-			} else {
+			// Only show notices if not suppressed
+			if (!suppressNotice) {
+				if (duplicates.length === 0) {
+					new obsidian.Notice('No duplicate Granola notes found! 🎉');
+				} else {
+					// Create a summary message
+					let message = `Found ${duplicates.length} set(s) of duplicate Granola notes:\n\n`;
 
-				// Create a summary message
-				let message = `Found ${duplicates.length} set(s) of duplicate Granola notes:\n\n`;
-
-				for (const duplicate of duplicates) {
-					message += `Granola ID: ${duplicate.granolaId}\n`;
-					for (const file of duplicate.files) {
-						message += `  • ${file.path}\n`;
+					for (const duplicate of duplicates) {
+						message += `Granola ID: ${duplicate.granolaId}\n`;
+						for (const file of duplicate.files) {
+							message += `  • ${file.path}\n`;
+						}
+						message += '\n';
 					}
-					message += '\n';
+
+					message += 'Check the console for full details. You can manually delete the duplicates you don\'t want to keep.';
+
+					new obsidian.Notice(message, 10000); // Show for 10 seconds
 				}
-
-				message += 'Check the console for full details. You can manually delete the duplicates you don\'t want to keep.';
-
-				new obsidian.Notice(message, 10000); // Show for 10 seconds
 			}
 
 			return duplicates;
 
 		} catch (error) {
 			console.error('Error finding duplicate notes:', error);
-			new obsidian.Notice('Error finding duplicate notes. Check console for details.');
+			if (!suppressNotice) {
+				new obsidian.Notice('Error finding duplicate notes. Check console for details.');
+			}
 			return [];
 		}
 	}
@@ -926,9 +930,11 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 
 	async findDuplicatesAndOpen() {
 		try {
-			const duplicates = await this.findDuplicateNotes();
+			// Find duplicates without showing popup notice
+			const duplicates = await this.findDuplicateNotes(true);
 
 			if (duplicates.length === 0) {
+				new obsidian.Notice('No duplicate Granola notes found! 🎉');
 				return;
 			}
 
