@@ -857,7 +857,6 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 		report += '---\n\n';
 		report += '# Duplicate Granola Notes\n\n';
 		report += `Found ${duplicates.length} set(s) of duplicate notes.\n\n`;
-		report += '> **Tip**: Right-click on any file path below and select "Delete" from the context menu, or use the delete command in your vault.\n\n';
 
 		for (let i = 0; i < duplicates.length; i++) {
 			const duplicate = duplicates[i];
@@ -867,21 +866,19 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 			for (const file of duplicate.files) {
 				const fileName = file.path;
 				const baseName = fileName.split('/').pop();
-				report += `### ${baseName}\n`;
-				report += `**Path**: \`${fileName}\`\n`;
-				report += `**Link**: [[${fileName}]]\n`;
-				report += `**Delete**: Right-click the link above and delete, or delete the file directly from your vault\n\n`;
+				report += `- **${baseName}** - [[${fileName}]]\n`;
+				report += `  Path: \`${fileName}\`\n\n`;
 			}
 
 			report += '---\n\n';
 		}
 
-		report += '## How to Handle Duplicates\n\n';
-		report += '1. **Review**: Click on the links above to open and review each duplicate\n';
-		report += '2. **Decide**: Determine which version you want to keep\n';
-		report += '3. **Delete**: Right-click on the file link and select delete, or delete from the vault\n';
-		report += '4. **Cleanup**: Delete this report file when done\n\n';
-		report += '> **Note**: All listed files have the same Granola ID but are stored as separate files. Only keep one copy of each note.\n';
+		report += '## Instructions\n\n';
+		report += '1. **Review**: Click the links above to open and compare each duplicate\n';
+		report += '2. **Decide**: Choose which version you want to keep\n';
+		report += '3. **Delete**: Use your file explorer to delete the files you don\'t need\n';
+		report += '4. **Cleanup**: Delete this report when done\n\n';
+		report += '> **Note**: All listed files have the same Granola ID but are stored as separate files in your vault.\n';
 
 		return report;
 	}
