@@ -1,2 +1,11 @@
+# User settings
 data.json
+
+# macOS
 .DS_Store
+
+# Node modules (if developing)
+node_modules/
+
+# Build artifacts
+*.map

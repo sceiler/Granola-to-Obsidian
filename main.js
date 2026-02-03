@@ -676,8 +676,8 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 
 	generateNoteTitle(doc) {
 		const title = doc.title || 'Untitled Granola Note';
-		// Clean the title for use as a heading - remove invalid characters but keep spaces
-		return title.replace(/[<>:"/\\|?*]/g, '').trim();
+		// Keep the title as-is for markdown headings - special characters are valid in headings
+		return title.trim();
 	}
 
 	generateFilename(doc) {
@@ -717,7 +717,10 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 			filename = this.settings.notePrefix + filename;
 		}
 
-		const invalidChars = /[<>:"/\\|?*]/g;
+		// Only remove characters that are invalid in filenames or create paths
+		// Keep <> as they are valid on macOS and often used in titles
+		// Remove: / (creates subdirs), : \ | ? * " (invalid on Windows or have special meaning)
+		const invalidChars = /[:/\\|?*"]/g;
 		filename = filename.replace(invalidChars, '');
 		filename = filename.replace(/\s+/g, this.settings.filenameSeparator);
 
@@ -772,6 +775,133 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 		} catch (error) {
 			console.error('Error creating folder-based directory:', folderPath, error);
 		}
+	}
+
+	/**
+	 * Formats an ISO date string to Obsidian Date & Time property format (local time).
+	 * Input: "2026-02-03T14:00:06.931Z"
+	 * Output: "2026-02-03T14:00:06"
+	 */
+	formatDateTimeProperty(isoString) {
+		try {
+			const date = new Date(isoString);
+			const year = date.getFullYear();
+			const month = String(date.getMonth() + 1).padStart(2, '0');
+			const day = String(date.getDate()).padStart(2, '0');
+			const hours = String(date.getHours()).padStart(2, '0');
+			const minutes = String(date.getMinutes()).padStart(2, '0');
+			const seconds = String(date.getSeconds()).padStart(2, '0');
+			return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}`;
+		} catch (error) {
+			console.error('Error formatting date time property:', error);
+			return null;
+		}
+	}
+
+	/**
+	 * Generates wiki links for people from attendee names.
+	 * Returns array like ["[[Yi Min]]", "[[Pagona Schäfer]]"]
+	 */
+	generatePeopleLinks(attendeeNames) {
+		if (!attendeeNames || attendeeNames.length === 0) {
+			return [];
+		}
+
+		const links = [];
+		for (let name of attendeeNames) {
+			// Convert German umlaut representations (ae → ä, oe → ö, ue → ü)
+			name = this.convertGermanUmlauts(name);
+
+			// Skip user's own name if configured
+			if (this.settings.excludeMyNameFromTags && this.settings.myName) {
+				const myNameLower = this.settings.myName.toLowerCase().trim();
+				const nameLower = name.toLowerCase().trim();
+
+				// Check for exact match
+				if (nameLower === myNameLower) {
+					continue;
+				}
+
+				// Check if either name contains the other (handles partial names)
+				// e.g., "Yi Min" matches "Yi Min Yang", or "Yi Min Yang" matches "Yi Min"
+				if (nameLower.includes(myNameLower) || myNameLower.includes(nameLower)) {
+					continue;
+				}
+
+				// Check if all parts of the shorter name appear in the longer name
+				// Handles cases like "Yi Min" vs "Yi-Min Yang" or different orderings
+				const myNameParts = myNameLower.split(/[\s\-_]+/).filter(p => p.length > 1);
+				const nameParts = nameLower.split(/[\s\-_]+/).filter(p => p.length > 1);
+
+				// If most parts match, consider it the same person
+				const matchingParts = myNameParts.filter(part =>
+					nameParts.some(np => np.includes(part) || part.includes(np))
+				);
+				if (matchingParts.length >= Math.min(myNameParts.length, nameParts.length) &&
+					matchingParts.length >= 2) {
+					continue;
+				}
+			}
+
+			const link = `[[${name}]]`;
+			if (!links.includes(link)) {
+				links.push(link);
+			}
+		}
+		return links;
+	}
+
+	/**
+	 * Converts German umlaut ASCII representations back to proper umlauts.
+	 * e.g., "Schaefer" → "Schäfer", "Mueller" → "Müller"
+	 */
+	convertGermanUmlauts(name) {
+		if (!name) return name;
+
+		return name
+			// Handle uppercase at start of word or standalone
+			.replace(/\bAe/g, 'Ä')
+			.replace(/\bOe/g, 'Ö')
+			.replace(/\bUe/g, 'Ü')
+			// Handle lowercase in middle/end of words
+			.replace(/ae/g, 'ä')
+			.replace(/oe/g, 'ö')
+			.replace(/ue/g, 'ü');
+	}
+
+	/**
+	 * Extracts email addresses from document attendees.
+	 * Checks both doc.people and doc.google_calendar_event.attendees
+	 */
+	extractAttendeeEmails(doc) {
+		const emails = [];
+		const processedEmails = new Set();
+
+		try {
+			// Extract from doc.people
+			if (doc.people && Array.isArray(doc.people)) {
+				for (const person of doc.people) {
+					if (person.email && !processedEmails.has(person.email)) {
+						emails.push(person.email);
+						processedEmails.add(person.email);
+					}
+				}
+			}
+
+			// Extract from google_calendar_event.attendees
+			if (doc.google_calendar_event && doc.google_calendar_event.attendees) {
+				for (const attendee of doc.google_calendar_event.attendees) {
+					if (attendee.email && !processedEmails.has(attendee.email)) {
+						emails.push(attendee.email);
+						processedEmails.add(attendee.email);
+					}
+				}
+			}
+		} catch (error) {
+			console.error('Error extracting attendee emails:', error);
+		}
+
+		return emails;
 	}
 
 	/**
@@ -1162,26 +1292,53 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 			try {
 				// Extract attendee information
 				const attendeeNames = this.extractAttendeeNames(doc);
-				const attendeeTags = this.generateAttendeeTags(attendeeNames);
-
-				// Extract folder information
-				const folderNames = this.extractFolderNames(doc);
-				const folderTags = this.generateFolderTags(folderNames);
+				const peopleLinks = this.generatePeopleLinks(attendeeNames);
+				const attendeeEmails = this.extractAttendeeEmails(doc);
 
 				// Generate Granola URL
 				const granolaUrl = this.generateGranolaUrl(docId);
 
-				// Combine all tags
-				const allTags = [...attendeeTags, ...folderTags];
-
-				// Create frontmatter with original title
+				// Create frontmatter with custom template format
 				let frontmatter = '---\n';
-				frontmatter += 'granola_id: ' + docId + '\n';
 				const escapedTitle = title.replace(/"/g, '\\"');
+
+				// User's template fields (in original order)
+				frontmatter += 'category:\n  - "[[Meetings]]"\n';
+				frontmatter += 'type:\n';
+
+				if (doc.created_at) {
+					frontmatter += 'date: ' + this.formatDateTimeProperty(doc.created_at) + '\n';
+				} else {
+					frontmatter += 'date:\n';
+				}
+
+				frontmatter += 'org:\n';
+				frontmatter += 'loc:\n';
+
+				frontmatter += 'people:\n';
+				if (peopleLinks.length > 0) {
+					for (const link of peopleLinks) {
+						frontmatter += '  - "' + link + '"\n';
+					}
+				}
+
+				frontmatter += 'topics:\n';
+				frontmatter += 'tags:\n  - meetings\n';
+
+				// Emails field
+				frontmatter += 'emails:\n';
+				if (attendeeEmails.length > 0) {
+					for (const email of attendeeEmails) {
+						frontmatter += '  - ' + email + '\n';
+					}
+				}
+
+				// Granola-specific fields (after user template)
+				frontmatter += 'granola_id: ' + docId + '\n';
 				frontmatter += 'title: "' + escapedTitle + '"\n';
 
 				if (granolaUrl) {
-					frontmatter += 'granola_url: "' + granolaUrl + '"\n';
+					frontmatter += 'granola_url: ' + granolaUrl + '\n';
 				}
 
 				if (doc.created_at) {
@@ -1191,15 +1348,7 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 					frontmatter += 'updated_at: ' + doc.updated_at + '\n';
 				}
 
-				// Add all tags if any were found
-				if (allTags.length > 0) {
-					frontmatter += 'tags:\n';
-					for (const tag of allTags) {
-						frontmatter += '  - ' + tag + '\n';
-					}
-				}
-
-				frontmatter += '---\n\n';
+				frontmatter += '---\n';
 
 				// Build the note content with all sections
 				const noteContent = this.buildNoteContent(doc, transcript);
@@ -1216,25 +1365,53 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 		// Create new note
 		// Extract attendee information
 		const attendeeNames = this.extractAttendeeNames(doc);
-		const attendeeTags = this.generateAttendeeTags(attendeeNames);
-
-		// Extract folder information
-		const folderNames = this.extractFolderNames(doc);
-		const folderTags = this.generateFolderTags(folderNames);
+		const peopleLinks = this.generatePeopleLinks(attendeeNames);
+		const attendeeEmails = this.extractAttendeeEmails(doc);
 
 		// Generate Granola URL
 		const granolaUrl = this.generateGranolaUrl(docId);
 
-		// Combine all tags
-		const allTags = [...attendeeTags, ...folderTags];
-
+		// Create frontmatter with custom template format
 		let frontmatter = '---\n';
-		frontmatter += 'granola_id: ' + docId + '\n';
 		const escapedTitle = title.replace(/"/g, '\\"');
+
+		// User's template fields (in original order)
+		frontmatter += 'category:\n  - "[[Meetings]]"\n';
+		frontmatter += 'type:\n';
+
+		if (doc.created_at) {
+			frontmatter += 'date: ' + this.formatDateTimeProperty(doc.created_at) + '\n';
+		} else {
+			frontmatter += 'date:\n';
+		}
+
+		frontmatter += 'org:\n';
+		frontmatter += 'loc:\n';
+
+		frontmatter += 'people:\n';
+		if (peopleLinks.length > 0) {
+			for (const link of peopleLinks) {
+				frontmatter += '  - "' + link + '"\n';
+			}
+		}
+
+		frontmatter += 'topics:\n';
+		frontmatter += 'tags:\n  - meetings\n';
+
+		// Emails field
+		frontmatter += 'emails:\n';
+		if (attendeeEmails.length > 0) {
+			for (const email of attendeeEmails) {
+				frontmatter += '  - ' + email + '\n';
+			}
+		}
+
+		// Granola-specific fields (after user template)
+		frontmatter += 'granola_id: ' + docId + '\n';
 		frontmatter += 'title: "' + escapedTitle + '"\n';
 
 		if (granolaUrl) {
-			frontmatter += 'granola_url: "' + granolaUrl + '"\n';
+			frontmatter += 'granola_url: ' + granolaUrl + '\n';
 		}
 
 		if (doc.created_at) {
@@ -1244,15 +1421,7 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 			frontmatter += 'updated_at: ' + doc.updated_at + '\n';
 		}
 
-		// Add all tags if any were found
-		if (allTags.length > 0) {
-			frontmatter += 'tags:\n';
-			for (const tag of allTags) {
-				frontmatter += '  - ' + tag + '\n';
-			}
-		}
-
-		frontmatter += '---\n\n';
+		frontmatter += '---\n';
 
 		// Build the note content with all sections
 		const noteContent = this.buildNoteContent(doc, transcript);
@@ -1598,20 +1767,16 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 	extractAttendeeNames(doc) {
 		const attendees = [];
 		const processedEmails = new Set(); // Track processed emails to avoid duplicates
-		
+
 		try {
-			// Check the people field for attendee information (enhanced with detailed person data)
+			// First pass: Extract proper display names only (no email fallbacks)
 			if (doc.people && Array.isArray(doc.people)) {
 				for (const person of doc.people) {
 					let name = null;
-					
-					// Try to get name from various fields
-					if (person.name) {
-						name = person.name;
-					} else if (person.display_name) {
-						name = person.display_name;
-					} else if (person.details && person.details.person && person.details.person.name) {
-						// Use the detailed person information if available
+
+					// Try to get proper display name from various fields (prioritize quality sources)
+					if (person.details && person.details.person && person.details.person.name) {
+						// Use the detailed person information if available (highest quality)
 						const personDetails = person.details.person.name;
 						if (personDetails.fullName) {
 							name = personDetails.fullName;
@@ -1620,42 +1785,87 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 						} else if (personDetails.givenName) {
 							name = personDetails.givenName;
 						}
-					} else if (person.email) {
-						// Extract name from email if no display name
-						const emailName = person.email.split('@')[0].replace(/[._]/g, ' ');
-						name = emailName;
+					} else if (person.display_name) {
+						name = person.display_name;
+					} else if (person.name) {
+						name = person.name;
 					}
-					
+
+					// Only add if we got a proper name (not from email)
 					if (name && !attendees.includes(name)) {
 						attendees.push(name);
 						if (person.email) {
-							processedEmails.add(person.email);
+							processedEmails.add(person.email.toLowerCase());
 						}
 					}
 				}
 			}
-			
-			// Also check google_calendar_event for additional attendee info
+
+			// Also check google_calendar_event for additional attendee display names
 			if (doc.google_calendar_event && doc.google_calendar_event.attendees) {
 				for (const attendee of doc.google_calendar_event.attendees) {
 					// Skip if we've already processed this email
-					if (attendee.email && processedEmails.has(attendee.email)) {
+					if (attendee.email && processedEmails.has(attendee.email.toLowerCase())) {
 						continue;
 					}
-					
+
+					// Only use proper display names, not email-derived names
 					if (attendee.displayName && !attendees.includes(attendee.displayName)) {
 						attendees.push(attendee.displayName);
 						if (attendee.email) {
-							processedEmails.add(attendee.email);
+							processedEmails.add(attendee.email.toLowerCase());
 						}
-					} else if (attendee.email && !attendees.some(name => name.includes(attendee.email.split('@')[0]))) {
-						const emailName = attendee.email.split('@')[0].replace(/[._]/g, ' ');
-						attendees.push(emailName);
-						processedEmails.add(attendee.email);
 					}
 				}
 			}
-			
+
+			// Second pass: For people without display names, try email as last resort
+			// but only if we have very few attendees (suggests missing data)
+			if (doc.people && Array.isArray(doc.people)) {
+				for (const person of doc.people) {
+					if (person.email && !processedEmails.has(person.email.toLowerCase())) {
+						// Check if this person already has a name in attendees
+						const hasName = person.name || person.display_name ||
+							(person.details && person.details.person && person.details.person.name);
+
+						if (!hasName) {
+							// Extract and title-case name from email as fallback
+							const emailName = person.email.split('@')[0]
+								.replace(/[._-]/g, ' ')
+								.split(' ')
+								.map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+								.join(' ');
+
+							if (!attendees.includes(emailName)) {
+								attendees.push(emailName);
+								processedEmails.add(person.email.toLowerCase());
+							}
+						}
+					}
+				}
+			}
+
+			// Same for calendar attendees without display names
+			if (doc.google_calendar_event && doc.google_calendar_event.attendees) {
+				for (const attendee of doc.google_calendar_event.attendees) {
+					if (attendee.email && !processedEmails.has(attendee.email.toLowerCase())) {
+						if (!attendee.displayName) {
+							// Extract and title-case name from email as fallback
+							const emailName = attendee.email.split('@')[0]
+								.replace(/[._-]/g, ' ')
+								.split(' ')
+								.map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+								.join(' ');
+
+							if (!attendees.includes(emailName)) {
+								attendees.push(emailName);
+								processedEmails.add(attendee.email.toLowerCase());
+							}
+						}
+					}
+				}
+			}
+
 			return attendees;
 		} catch (error) {
 			console.error('Error extracting attendee names:', error);
@@ -1804,24 +2014,37 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 		try {
 			// Extract all metadata
 			const attendeeNames = this.extractAttendeeNames(doc);
-			const attendeeTags = this.generateAttendeeTags(attendeeNames);
-			const folderNames = this.extractFolderNames(doc);
-			const folderTags = this.generateFolderTags(folderNames);
+			const peopleLinks = this.generatePeopleLinks(attendeeNames);
+			const attendeeEmails = this.extractAttendeeEmails(doc);
 			const granolaUrl = this.generateGranolaUrl(doc.id);
 
 			// Use FileManager.processFrontMatter for atomic frontmatter updates
 			await this.app.fileManager.processFrontMatter(file, (frontmatter) => {
-				// Preserve existing tags that are not person or folder tags
+				// Update category if not set
+				if (!frontmatter.category) {
+					frontmatter.category = ['[[Meetings]]'];
+				}
+
+				// Ensure tags includes 'meetings'
 				const existingTags = frontmatter.tags || [];
-				const preservedTags = existingTags.filter(
-				    (tag) => !attendeeTags.includes(tag) && !folderTags.includes(tag)
-				);
+				if (!existingTags.includes('meetings')) {
+					frontmatter.tags = ['meetings', ...existingTags];
+				}
 
-				// Combine attendee and folder tags
-				const newTags = [...attendeeTags, ...folderTags];
+				// Update people with links
+				if (peopleLinks.length > 0) {
+					frontmatter.people = peopleLinks;
+				}
 
-				// Update tags
-				frontmatter.tags = [...preservedTags, ...newTags];
+				// Update emails
+				if (attendeeEmails.length > 0) {
+					frontmatter.emails = attendeeEmails;
+				}
+
+				// Update date if not set and we have created_at
+				if (!frontmatter.date && doc.created_at) {
+					frontmatter.date = this.formatDateTimeProperty(doc.created_at);
+				}
 
 				// Update or add Granola URL if enabled
 				if (granolaUrl) {
@@ -1830,7 +2053,7 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 			});
 
 		} catch (error) {
-			console.error('Error updating attendee tags for existing note:', error);
+			console.error('Error updating metadata for existing note:', error);
 			throw error;
 		}
 	}
