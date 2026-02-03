@@ -1,16 +1,19 @@
 # Granola Sync for Obsidian (Fork)
 
-> This is a fork of [dannymcc/Granola-to-Obsidian](https://github.com/dannymcc/Granola-to-Obsidian) with custom frontmatter templates and additional improvements.
+> This is a simplified fork of [dannymcc/Granola-to-Obsidian](https://github.com/dannymcc/Granola-to-Obsidian) focused on core sync functionality with configurable frontmatter.
 
-An Obsidian plugin that automatically syncs your [Granola AI](https://granola.ai) meeting notes to your Obsidian vault with full customization options and real-time status updates.
+An Obsidian plugin that automatically syncs your [Granola AI](https://granola.ai) meeting notes to your Obsidian vault.
 
-## Fork Changes
+## Features
 
-This fork includes the following modifications to better integrate with custom Obsidian workflows:
+- **Automatic & Manual Sync**: Sync on demand or set auto-sync intervals (1 min to 24 hours)
+- **Configurable Frontmatter**: Customize category, tags, and choose which fields to include
+- **People as Wiki Links**: Attendees appear as `[[John Smith]]` for easy linking
+- **Daily Note Integration**: Automatically adds today's meetings to your daily note
+- **German Umlaut Support**: Converts `ae` → `ä`, `oe` → `ö`, `ue` → `ü` in names
+- **Smart Content Detection**: Only creates notes when Granola has finished processing (no empty notes)
 
-### Custom Frontmatter Template
-
-The frontmatter format has been customized to match a specific meeting note template:
+## Frontmatter Example
 
 ```yaml
 ---
@@ -37,35 +40,11 @@ updated_at: 2026-02-03T14:50:53.150Z
 ---
 ```
 
-### Key Differences from Original
-
-| Feature | Original | This Fork |
-|---------|----------|-----------|
-| **People format** | Tags (`person/john-smith`) | Wiki links (`[[John Smith]]`) |
-| **Date field** | ISO timestamp with timezone | Local time without timezone (Obsidian Date & Time property) |
-| **Emails** | Not included | Extracted from attendees |
-| **Tags** | Dynamic attendee tags | Static `meetings` tag |
-| **Empty fields** | Not included | Included for manual entry (`type`, `org`, `loc`, `topics`) |
-| **Category** | Not included | Always `[[Meetings]]` |
-
-### Additional Improvements
-
-1. **German Umlaut Support**: Converts ASCII representations back to proper umlauts (`ae` → `ä`, `oe` → `ö`, `ue` → `ü`)
-
-2. **Improved Name Extraction**: Prioritizes display names from Granola over email-derived names, with proper title-casing as fallback
-
-3. **Better Filename Handling**:
-   - Preserves `<>` characters in filenames (valid on macOS)
-   - Only removes truly invalid characters (`:`, `/`, `\`, `|`, `?`, `*`, `"`)
-   - Collapses multiple spaces properly
-
-4. **Title Preservation**: Note headings retain the original title without character stripping
-
 ## Installation
 
 ### Manual Installation
 
-1. Download the latest release from the [Releases page](https://github.com/sceiler/Granola-to-Obsidian/releases)
+1. Download the latest release from the [Releases page](../../releases)
 2. Extract the files to your vault's plugins directory: `.obsidian/plugins/granola-sync/`
 3. Enable the plugin in Obsidian Settings → Community Plugins
 4. Configure your sync settings
@@ -74,30 +53,67 @@ updated_at: 2026-02-03T14:50:53.150Z
 - `main.js`
 - `manifest.json`
 - `styles.css`
-- `versions.json`
 
 ## Configuration
 
 Access plugin settings via **Settings → Community Plugins → Granola Sync**
 
-### Core Settings
+### Sync Settings
 
-- **Sync Directory**: Folder to sync notes to (default: `Granola`)
-- **Auth Key Path**: Path to Granola authentication file
-- **Auto-Sync Frequency**: From manual-only to every 24 hours
-- **Filename Template**: Customize note filenames with variables
+| Setting | Description |
+|---------|-------------|
+| Sync Directory | Folder where notes are saved (default: `Notes`) |
+| Auth Key Path | Path to Granola authentication file |
+| Auto-Sync Frequency | How often to sync (manual to every 24 hours) |
+| Document Limit | Maximum number of recent documents to sync |
+| Skip Existing Notes | Don't overwrite notes that already exist |
 
-### Frontmatter Settings
+### Filename Settings
 
-The frontmatter is generated with the following structure:
-- User template fields first (category, type, date, org, loc, people, topics, tags)
-- Emails list extracted from meeting attendees
-- Granola-specific fields (granola_id, title, granola_url, created_at, updated_at)
+| Setting | Description |
+|---------|-------------|
+| Filename Template | Use `{title}`, `{created_date}`, `{id}`, etc. |
+| Date Format | Format for dates (e.g., `YYYY-MM-DD`) |
+| Word Separator | Character between words (`_`, `-`, space, or none) |
 
-### People Filtering
+### Note Content
 
-- **Exclude My Name**: Enable to filter out your own name from the people list
-- **My Name**: Set your name as it appears in meetings for accurate filtering
+| Setting | Description |
+|---------|-------------|
+| Include My Notes | Your personal notes from Granola |
+| Include Enhanced Notes | AI-generated summaries |
+| Include Transcript | Full meeting transcript (slower sync) |
+
+### Frontmatter Options
+
+| Setting | Description |
+|---------|-------------|
+| Include Granola URL | Link back to original Granola note |
+| Include Emails | Attendee email addresses |
+| Exclude My Name | Filter your name from people list |
+| Enable Custom Frontmatter | Add category, type, org, loc, topics fields |
+| Category | Default category value (e.g., `[[Meetings]]`) |
+| Tags | Default tags (comma-separated) |
+
+### Daily Note Integration
+
+| Setting | Description |
+|---------|-------------|
+| Enable Daily Note Integration | Add today's meetings to your daily note |
+| Section Heading | Heading for the meetings section (e.g., `## Granola Meetings`) |
+
+## Differences from Original
+
+This fork is streamlined for a specific workflow:
+
+| Feature | Original | This Fork |
+|---------|----------|-----------|
+| People format | Tags (`person/john-smith`) | Wiki links (`[[John Smith]]`) |
+| Frontmatter | Fixed format | Configurable |
+| Empty fields | Not included | Optional (`type`, `org`, `loc`, `topics`) |
+| Codebase | ~2900 lines | ~1470 lines |
+
+**Removed features**: Periodic notes integration, Granola folders, folder filtering, attendee tags, folder tags, date-based subfolders, duplicate detection command, reorganize notes command, note prefix, experimental search scope.
 
 ## Requirements
 
