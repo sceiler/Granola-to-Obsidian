@@ -43,8 +43,6 @@ people:
 topics:
 tags:
   - meetings
-attachments:                      # Downloaded meeting attachments
-  - "[[2026-02-03_14-00_screenshot.png]]"
 emails:
   - john.smith@example.com
   - jane.doe@example.com

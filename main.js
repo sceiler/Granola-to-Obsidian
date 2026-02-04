@@ -879,6 +879,48 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 		}
 	}
 
+	/**
+	 * Get file extension from attachment type or URL
+	 */
+	getAttachmentExtension(attachment, contentType) {
+		// Map of type field to extension
+		const typeToExt = {
+			'image': 'png',
+			'image/png': 'png',
+			'image/jpeg': 'jpg',
+			'image/jpg': 'jpg',
+			'image/gif': 'gif',
+			'image/webp': 'webp',
+			'image/svg+xml': 'svg',
+			'application/pdf': 'pdf',
+		};
+
+		// Try content-type header first
+		if (contentType) {
+			const ct = contentType.toLowerCase().split(';')[0].trim();
+			if (typeToExt[ct]) return typeToExt[ct];
+			// Extract from content-type like "image/png"
+			const match = ct.match(/^image\/(\w+)/);
+			if (match) return match[1];
+		}
+
+		// Try attachment type field
+		if (attachment.type && typeToExt[attachment.type]) {
+			return typeToExt[attachment.type];
+		}
+
+		// Try to extract from URL
+		const urlMatch = attachment.url?.match(/\.(\w{3,4})(?:\?|$)/);
+		if (urlMatch) return urlMatch[1];
+
+		// Default to png for images
+		if (attachment.type === 'image' || attachment.width || attachment.height) {
+			return 'png';
+		}
+
+		return 'bin';
+	}
+
 	async downloadAttachments(doc, token, noteFolder) {
 		if (!this.settings.downloadAttachments) {
 			return [];
@@ -901,32 +943,51 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 				}
 			}
 
-			for (const attachment of attachments) {
+			for (let i = 0; i < attachments.length; i++) {
+				const attachment = attachments[i];
 				try {
-					// Attachments may have different structures - handle common cases
 					const url = attachment.url || attachment.file_url || attachment.download_url;
-					let filename = attachment.filename || attachment.name || `attachment_${Date.now()}`;
 
 					if (!url) {
+						console.warn('Attachment has no URL:', attachment);
 						continue;
 					}
 
-					// Make filename unique by prefixing with note date to avoid conflicts
-					const noteDate = doc.created_at ? this.formatDate(doc.created_at, 'YYYY-MM-DD_HH-mm') : '';
-					if (noteDate && !filename.startsWith(noteDate)) {
-						filename = noteDate + '_' + filename;
+					// Build request options - don't send auth headers to CDN URLs
+					const isCdnUrl = url.includes('cloudfront.net') || url.includes('cdn.');
+					const requestOptions = {
+						url: url,
+						method: 'GET',
+					};
+					if (!isCdnUrl) {
+						requestOptions.headers = {
+							'Authorization': 'Bearer ' + token,
+						};
 					}
 
 					// Download the attachment
-					const response = await obsidian.requestUrl({
-						url: url,
-						method: 'GET',
-						headers: {
-							'Authorization': 'Bearer ' + token,
-						}
-					});
+					const response = await obsidian.requestUrl(requestOptions);
 
 					if (response.arrayBuffer) {
+						// Determine file extension
+						const contentType = response.headers?.['content-type'] || response.headers?.['Content-Type'];
+						const ext = this.getAttachmentExtension(attachment, contentType);
+
+						// Build filename with extension
+						let baseFilename = attachment.filename || attachment.name;
+						if (!baseFilename) {
+							baseFilename = `attachment_${i + 1}`;
+						}
+
+						// Remove existing extension if present, we'll add the correct one
+						baseFilename = baseFilename.replace(/\.\w{3,4}$/, '');
+
+						// Add date prefix for uniqueness
+						const noteDate = doc.created_at ? this.formatDate(doc.created_at, 'YYYY-MM-DD_HH-mm') : '';
+						const filename = noteDate
+							? `${noteDate}_${baseFilename}.${ext}`
+							: `${baseFilename}.${ext}`;
+
 						const filePath = attachmentDir ? path.join(attachmentDir, filename) : filename;
 
 						// Check if file already exists
@@ -936,11 +997,12 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 						}
 
 						// Return just the filename for embedding with ![[filename]]
-						// Obsidian will resolve the link automatically
 						downloadedFiles.push(filename);
+					} else {
+						console.warn('No data received for attachment:', url);
 					}
 				} catch (attachmentError) {
-					console.error('Error downloading attachment:', attachmentError);
+					console.error('Error downloading attachment:', attachment.url, attachmentError);
 				}
 			}
 		} catch (error) {
@@ -1231,6 +1293,7 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 	}
 
 	extractPanelContent(doc, panelType) {
+		// First check panels array
 		if (doc.panels && Array.isArray(doc.panels)) {
 			for (const panel of doc.panels) {
 				if (panel.type === panelType && panel.content && panel.content.type === 'doc') {
@@ -1239,6 +1302,12 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 			}
 		}
 
+		// For my_notes, also check doc.notes directly (used when no AI processing)
+		if (panelType === 'my_notes' && doc.notes && doc.notes.type === 'doc') {
+			return doc.notes;
+		}
+
+		// Fallback for enhanced_notes from last_viewed_panel
 		if (panelType === 'enhanced_notes' && doc.last_viewed_panel &&
 			doc.last_viewed_panel.content && doc.last_viewed_panel.content.type === 'doc') {
 			return doc.last_viewed_panel.content;
@@ -1382,14 +1451,6 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 					frontmatter += '  - ' + escapeYamlValue(tag) + '\n';
 				}
 			}
-
-			// Attachments
-			if (attachmentFilenames.length > 0) {
-				frontmatter += 'attachments:\n';
-				for (const attachmentPath of attachmentFilenames) {
-					frontmatter += '  - ' + escapeYamlValue('[[' + attachmentPath + ']]') + '\n';
-				}
-			}
 		} else {
 			// Simplified frontmatter without custom fields
 			if (scheduledStart) {
@@ -1453,9 +1514,10 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 			const hasMyNotes = myNotesMarkdown && this.settings.includeMyNotes;
 			const hasEnhancedNotes = enhancedNotesMarkdown && this.settings.includeEnhancedNotes;
 			const hasTranscript = this.settings.includeFullTranscript && transcript && transcript !== 'no_transcript';
+			const hasAttachments = this.settings.downloadAttachments && doc.attachments && doc.attachments.length > 0;
 
-			// Only create note if there's actual content (not just empty panels)
-			if (!hasMyNotes && !hasEnhancedNotes && !hasTranscript) {
+			// Only create note if there's actual content (text or attachments)
+			if (!hasMyNotes && !hasEnhancedNotes && !hasTranscript && !hasAttachments) {
 				return false;
 			}
 
