@@ -294,7 +294,15 @@ curl -s --compressed "https://api.granola.ai/v2/get-documents" \
   "meeting_end_count": 1,
   "summary": null,
   "has_shareable_link": false,
-  "attachments": []
+  "attachments": [
+    {
+      "id": "abc123-attachment-id",
+      "url": "https://d1ywymt16s8sdr.cloudfront.net/...",
+      "type": "image",
+      "width": 2000,
+      "height": 160
+    }
+  ]
 }
 ```
 
@@ -310,6 +318,7 @@ curl -s --compressed "https://api.granola.ai/v2/get-documents" \
 | `google_calendar_event.attendees[].responseStatus` | Calendar response: `accepted`, `declined`, `tentative`, `needsAction` |
 | `people.attendees[].details.company.name` | Attendee's company (from enrichment) |
 | `panels` | Contains `my_notes` and `enhanced_notes` in ProseMirror format |
+| `attachments` | Array of meeting attachments with `url`, `type`, `width`, `height` |
 
 ### Fetching Transcripts
 
