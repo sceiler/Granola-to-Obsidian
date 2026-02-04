@@ -99,6 +99,7 @@ if enableDailyNoteIntegration:
 | `syncDirectory` | `Notes` | Where to save synced notes |
 | `filenameTemplate` | `{created_date}_{title}` | Filename format |
 | `dateFormat` | `YYYY-MM-DD` | Date format in filenames |
+| `slashReplacement` | `&` | Replace `/` in titles (e.g., "Jane / John" → "Jane & John") |
 | `autoSyncFrequency` | 5 minutes | Auto-sync interval (0 = manual) |
 | `skipExistingNotes` | `true` | Don't overwrite existing notes |
 | `includeMyNotes` | `true` | Include personal notes section |

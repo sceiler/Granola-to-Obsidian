@@ -54,7 +54,8 @@ const DEFAULT_SETTINGS = {
 	autoSyncFrequency: 300000,
 	skipExistingNotes: true,
 	existingFileAction: 'timestamp',
-	filenameSeparator: '_',
+	filenameSeparator: ' ',
+	slashReplacement: '&',
 	documentSyncLimit: 100,
 	includeFullTranscript: false,
 	includeMyNotes: true,
@@ -633,8 +634,15 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 			.replace(/{created_datetime}/g, createdDateTime)
 			.replace(/{updated_datetime}/g, updatedDateTime);
 
-		// Only remove characters that are invalid in filenames
-		const invalidChars = /[:/\\|?*"]/g;
+		// Replace slashes with configured replacement (e.g., "Jane / John" → "Jane & John")
+		if (this.settings.slashReplacement) {
+			filename = filename.replace(/\s*\/\s*/g, ` ${this.settings.slashReplacement} `);
+		} else {
+			filename = filename.replace(/\s*\/\s*/g, ' ');
+		}
+
+		// Remove remaining characters that are invalid in filenames
+		const invalidChars = /[:\\|?*"]/g;
 		filename = filename.replace(invalidChars, '');
 		filename = filename.replace(/\s+/g, this.settings.filenameSeparator);
 
@@ -1872,6 +1880,24 @@ class GranolaSyncSettingTab extends obsidian.PluginSettingTab {
 				dropdown.setValue(this.plugin.settings.filenameSeparator);
 				dropdown.onChange(async (value) => {
 					this.plugin.settings.filenameSeparator = value;
+					await this.plugin.saveSettings();
+				});
+			});
+
+		new obsidian.Setting(containerEl)
+			.setName('Slash replacement')
+			.setDesc('Replace "/" in titles (e.g., "Jane / John" → "Jane & John")')
+			.addDropdown(dropdown => {
+				dropdown.addOption('&', 'Ampersand (&)');
+				dropdown.addOption('-', 'Hyphen (-)');
+				dropdown.addOption('+', 'Plus (+)');
+				dropdown.addOption('~', 'Tilde (~)');
+				dropdown.addOption('x', 'x');
+				dropdown.addOption('', 'Remove');
+
+				dropdown.setValue(this.plugin.settings.slashReplacement);
+				dropdown.onChange(async (value) => {
+					this.plugin.settings.slashReplacement = value;
 					await this.plugin.saveSettings();
 				});
 			});
