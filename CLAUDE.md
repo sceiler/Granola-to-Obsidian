@@ -96,6 +96,7 @@ if enableDailyNoteIntegration:
 | `includeFullTranscript` | `false` | Include meeting transcript |
 | `includeGranolaUrl` | `true` | Add link back to Granola |
 | `includeEmails` | `true` | Include attendee emails |
+| `attendeeFilter` | `all` | Filter attendees by response status: `all`, `accepted`, `accepted_tentative`, `exclude_declined` |
 | `enableCustomFrontmatter` | `true` | Use custom frontmatter template |
 | `enableDailyNoteIntegration` | `true` | Add meetings to daily note |
 | `dailyNoteSectionName` | `## Granola Meetings` | Section heading in daily note |

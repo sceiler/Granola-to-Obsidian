@@ -62,6 +62,7 @@ const DEFAULT_SETTINGS = {
 	// Frontmatter options
 	includeGranolaUrl: true,
 	includeEmails: true,
+	attendeeFilter: 'all', // 'all', 'accepted', 'accepted_tentative', 'exclude_declined'
 	excludeMyNameFromPeople: true,
 	myName: '',
 	// Custom frontmatter template fields
@@ -688,13 +689,65 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 		return links;
 	}
 
+	/**
+	 * Build a map of email -> responseStatus from google calendar attendees
+	 */
+	buildResponseStatusMap(doc) {
+		const statusMap = new Map();
+		if (doc.google_calendar_event && doc.google_calendar_event.attendees) {
+			for (const attendee of doc.google_calendar_event.attendees) {
+				if (attendee.email && attendee.responseStatus) {
+					statusMap.set(attendee.email.toLowerCase(), attendee.responseStatus);
+				}
+			}
+		}
+		return statusMap;
+	}
+
+	/**
+	 * Check if an attendee should be included based on their response status
+	 */
+	shouldIncludeAttendee(responseStatus) {
+		const filter = this.settings.attendeeFilter;
+
+		// 'all' includes everyone regardless of status
+		if (filter === 'all') {
+			return true;
+		}
+
+		// If no response status available, include by default
+		if (!responseStatus) {
+			return true;
+		}
+
+		switch (filter) {
+			case 'accepted':
+				return responseStatus === 'accepted';
+			case 'accepted_tentative':
+				return responseStatus === 'accepted' || responseStatus === 'tentative';
+			case 'exclude_declined':
+				return responseStatus !== 'declined';
+			default:
+				return true;
+		}
+	}
+
 	extractAttendeeNames(doc) {
 		const attendees = [];
 		const processedEmails = new Set();
+		const responseStatusMap = this.buildResponseStatusMap(doc);
 
 		try {
 			if (doc.people && Array.isArray(doc.people)) {
 				for (const person of doc.people) {
+					// Check response status filter using email lookup
+					const email = person.email ? person.email.toLowerCase() : null;
+					const responseStatus = email ? responseStatusMap.get(email) : null;
+					if (!this.shouldIncludeAttendee(responseStatus)) {
+						if (email) processedEmails.add(email);
+						continue;
+					}
+
 					let name = null;
 
 					if (person.details && person.details.person && person.details.person.name) {
@@ -714,8 +767,8 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 
 					if (name && !attendees.includes(name)) {
 						attendees.push(name);
-						if (person.email) {
-							processedEmails.add(person.email.toLowerCase());
+						if (email) {
+							processedEmails.add(email);
 						}
 					}
 				}
@@ -724,6 +777,12 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 			if (doc.google_calendar_event && doc.google_calendar_event.attendees) {
 				for (const attendee of doc.google_calendar_event.attendees) {
 					if (attendee.email && processedEmails.has(attendee.email.toLowerCase())) {
+						continue;
+					}
+
+					// Check response status filter
+					if (!this.shouldIncludeAttendee(attendee.responseStatus)) {
+						if (attendee.email) processedEmails.add(attendee.email.toLowerCase());
 						continue;
 					}
 
@@ -740,6 +799,13 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 			if (doc.people && Array.isArray(doc.people)) {
 				for (const person of doc.people) {
 					if (person.email && !processedEmails.has(person.email.toLowerCase())) {
+						// Check response status filter
+						const responseStatus = responseStatusMap.get(person.email.toLowerCase());
+						if (!this.shouldIncludeAttendee(responseStatus)) {
+							processedEmails.add(person.email.toLowerCase());
+							continue;
+						}
+
 						const hasName = person.name || person.display_name ||
 							(person.details && person.details.person && person.details.person.name);
 
@@ -763,6 +829,12 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 			if (doc.google_calendar_event && doc.google_calendar_event.attendees) {
 				for (const attendee of doc.google_calendar_event.attendees) {
 					if (attendee.email && !processedEmails.has(attendee.email.toLowerCase())) {
+						// Check response status filter
+						if (!this.shouldIncludeAttendee(attendee.responseStatus)) {
+							processedEmails.add(attendee.email.toLowerCase());
+							continue;
+						}
+
 						if (!attendee.displayName) {
 							const emailName = attendee.email.split('@')[0]
 								.replace(/[._-]/g, ' ')
@@ -789,11 +861,18 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 	extractAttendeeEmails(doc) {
 		const emails = [];
 		const processedEmails = new Set();
+		const responseStatusMap = this.buildResponseStatusMap(doc);
 
 		try {
 			if (doc.people && Array.isArray(doc.people)) {
 				for (const person of doc.people) {
 					if (person.email && !processedEmails.has(person.email)) {
+						// Check response status filter
+						const responseStatus = responseStatusMap.get(person.email.toLowerCase());
+						if (!this.shouldIncludeAttendee(responseStatus)) {
+							processedEmails.add(person.email);
+							continue;
+						}
 						emails.push(person.email);
 						processedEmails.add(person.email);
 					}
@@ -803,6 +882,11 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 			if (doc.google_calendar_event && doc.google_calendar_event.attendees) {
 				for (const attendee of doc.google_calendar_event.attendees) {
 					if (attendee.email && !processedEmails.has(attendee.email)) {
+						// Check response status filter
+						if (!this.shouldIncludeAttendee(attendee.responseStatus)) {
+							processedEmails.add(attendee.email);
+							continue;
+						}
 						emails.push(attendee.email);
 						processedEmails.add(attendee.email);
 					}
@@ -1420,6 +1504,21 @@ class GranolaSyncSettingTab extends obsidian.PluginSettingTab {
 				toggle.setValue(this.plugin.settings.includeEmails);
 				toggle.onChange(async (value) => {
 					this.plugin.settings.includeEmails = value;
+					await this.plugin.saveSettings();
+				});
+			});
+
+		new obsidian.Setting(containerEl)
+			.setName('Attendee filter')
+			.setDesc('Filter attendees based on their calendar response status')
+			.addDropdown(dropdown => {
+				dropdown.addOption('all', 'Include everyone');
+				dropdown.addOption('accepted', 'Only accepted');
+				dropdown.addOption('accepted_tentative', 'Accepted + tentative');
+				dropdown.addOption('exclude_declined', 'Exclude declined');
+				dropdown.setValue(this.plugin.settings.attendeeFilter);
+				dropdown.onChange(async (value) => {
+					this.plugin.settings.attendeeFilter = value;
 					await this.plugin.saveSettings();
 				});
 			});
