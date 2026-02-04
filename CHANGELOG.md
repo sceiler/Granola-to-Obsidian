@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.0.2] - 2026-02-04
+
+### Fixed
+- **Smart sync with frontmatter preservation**: When "Skip Existing Notes" is enabled, the plugin now intelligently handles the case where Granola updates a document after initial sync (e.g., enhanced notes become available). The plugin:
+  - Compares Granola's `updated_at` timestamp with the note's `noteEnded`
+  - If Granola has newer content: updates the note body while **preserving your frontmatter edits**
+  - If no changes: skips the note as before
+  - This fixes the race condition where notes synced during a meeting would miss enhanced notes generated later
+
 ## [2.0.1] - 2026-02-04
 
 ### Added
@@ -13,9 +22,6 @@ All notable changes to this project will be documented in this file.
 
 ### Removed
 - **created_at / updated_at**: Removed from frontmatter (redundant with `noteStarted` / `noteEnded`).
-
-### Fixed
-- **Race condition with early sync**: Notes created before Granola finishes generating enhanced notes now get updated when new content is available. Compares `updated_at` from API with stored `noteEnded` timestamp. When updating, preserves existing frontmatter (manual corrections) and only updates the note content.
 
 ## [2.0.0] - 2026-02-04
 

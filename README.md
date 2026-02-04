@@ -78,7 +78,18 @@ Access plugin settings via **Settings → Community Plugins → Granola Sync**
 | Auth Key Path | Path to Granola authentication file |
 | Auto-Sync Frequency | How often to sync (manual to every 24 hours) |
 | Document Limit | Maximum number of recent documents to sync |
-| Skip Existing Notes | Don't overwrite notes that already exist |
+| Skip Existing Notes | Don't overwrite notes that already exist (see below) |
+
+#### Skip Existing Notes Behavior
+
+When **Skip Existing Notes** is enabled:
+- Existing notes are generally preserved (your manual edits to frontmatter are safe)
+- **However**, if Granola has updated the document since your last sync (e.g., enhanced notes became available after initial sync), the plugin will:
+  - **Preserve your frontmatter** (manual corrections to people, tags, org, etc.)
+  - **Update the note body** with new content from Granola (enhanced notes, attachments)
+  - **Update `noteEnded`** timestamp to track the sync
+
+This handles the race condition where a note is synced before Granola finishes generating enhanced notes. Your frontmatter edits remain intact while you still get the latest content from Granola.
 
 ### Filename Settings
 
