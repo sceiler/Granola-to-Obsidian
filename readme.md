@@ -89,6 +89,7 @@ Access plugin settings via **Settings → Community Plugins → Granola Sync**
 | Filename Template | Use `{title}`, `{created_date}`, `{id}`, etc. |
 | Date Format | Format for dates (e.g., `YYYY-MM-DD`) |
 | Word Separator | Character between words (`_`, `-`, space, or none) |
+| Slash Replacement | Replace `/` in titles with `&`, `-`, `+`, `~`, `x`, or remove |
 
 ### Note Content
 

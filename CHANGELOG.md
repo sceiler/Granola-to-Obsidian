@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.0.1] - 2026-02-04
+
+### Added
+- **Slash Replacement Setting**: Meeting titles with slashes (e.g., "Jane / John - Weekly") now have the slash replaced with a configurable character instead of being stripped. Options: `&` (default), `-`, `+`, `~`, `x`, or remove entirely.
+
+### Changed
+- **Default Filename Separator**: Changed from underscore (`_`) to space for more natural filenames.
+
 ## [2.0.0] - 2026-02-04
 
 ### Added
