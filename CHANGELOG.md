@@ -9,6 +9,13 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 - **Default Filename Separator**: Changed from underscore (`_`) to space for more natural filenames.
+- **Datetime Format**: All datetime fields now use `YYYY-MM-DDTHH:mm` format (no seconds) for cleaner frontmatter.
+
+### Removed
+- **created_at / updated_at**: Removed from frontmatter (redundant with `noteStarted` / `noteEnded`).
+
+### Fixed
+- **Race condition with early sync**: Notes created before Granola finishes generating enhanced notes now get updated when new content is available. Compares `updated_at` from API with stored `noteEnded` timestamp. When updating, preserves existing frontmatter (manual corrections) and only updates the note content.
 
 ## [2.0.0] - 2026-02-04
 

@@ -49,8 +49,6 @@ emails:
 granola_id: a1b2c3d4-e5f6-7890-abcd-ef1234567890
 title: "Weekly Team Standup"
 granola_url: https://notes.granola.ai/d/a1b2c3d4-e5f6-7890-abcd-ef1234567890
-created_at: 2026-02-03T14:00:06.931Z
-updated_at: 2026-02-03T14:50:53.150Z
 ---
 ```
 

@@ -1494,13 +1494,6 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 			frontmatter += 'granola_url: https://notes.granola.ai/d/' + docId + '\n';
 		}
 
-		if (doc.created_at) {
-			frontmatter += 'created_at: ' + this.formatDateTimeProperty(doc.created_at) + '\n';
-		}
-		if (doc.updated_at) {
-			frontmatter += 'updated_at: ' + this.formatDateTimeProperty(doc.updated_at) + '\n';
-		}
-
 		frontmatter += '---\n';
 		return frontmatter;
 	}
@@ -1535,6 +1528,35 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 
 			if (existingFile) {
 				if (this.settings.skipExistingNotes) {
+					// Check if Granola has updated the document since we last synced
+					// by comparing updated_at with the stored noteEnded timestamp
+					const cache = this.app.metadataCache.getFileCache(existingFile);
+					const storedNoteEnded = cache?.frontmatter?.noteEnded;
+					const apiUpdatedAt = this.formatDateTimeProperty(doc.updated_at);
+
+					// If we have both timestamps and API is newer, update the note
+					// Otherwise skip (timestamps match or can't compare)
+					if (storedNoteEnded && apiUpdatedAt && apiUpdatedAt > storedNoteEnded) {
+						// Granola has new content, update the note
+						// Preserve existing frontmatter (user's manual corrections) but update noteEnded
+						const noteContent = this.buildNoteContent(doc, transcript, attachmentFilenames);
+						await this.app.vault.process(existingFile, (existingContent) => {
+							// Extract existing frontmatter
+							const frontmatterMatch = existingContent.match(/^---\n([\s\S]*?)\n---\n/);
+							if (frontmatterMatch) {
+								// Update noteEnded in existing frontmatter so future comparisons work
+								let existingFrontmatter = frontmatterMatch[1];
+								existingFrontmatter = existingFrontmatter.replace(
+									/^noteEnded:.*$/m,
+									'noteEnded: ' + apiUpdatedAt
+								);
+								return '---\n' + existingFrontmatter + '\n---\n' + noteContent;
+							}
+							// Fallback: rebuild entirely if frontmatter parsing fails
+							const frontmatter = this.buildFrontmatter(doc, attachmentFilenames);
+							return frontmatter + noteContent;
+						});
+					}
 					return true;
 				}
 
