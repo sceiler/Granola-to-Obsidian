@@ -2,6 +2,40 @@ const obsidian = require('obsidian');
 const path = require('path');
 const fs = require('fs');
 
+// Constants
+const API_BATCH_SIZE = 100;
+const MAX_DOCUMENT_LIMIT = 1000;
+const MIN_DOCUMENT_LIMIT = 1;
+
+/**
+ * Safely parse JSON with error handling
+ * @param {string} jsonString - The JSON string to parse
+ * @param {string} context - Description of what's being parsed for error messages
+ * @returns {{data: any, error: string|null}} Parsed data or error message
+ */
+function safeJsonParse(jsonString, context = 'JSON') {
+	try {
+		return { data: JSON.parse(jsonString), error: null };
+	} catch (error) {
+		return { data: null, error: `Failed to parse ${context}: ${error.message}` };
+	}
+}
+
+/**
+ * Escape a string for safe inclusion in YAML
+ * @param {string} value - The value to escape
+ * @returns {string} Escaped string safe for YAML
+ */
+function escapeYamlValue(value) {
+	if (value === null || value === undefined) return '';
+	const str = String(value);
+	// If contains special characters, wrap in quotes and escape internal quotes
+	if (/[:\[\]{}#&*!|>'"%@`\n]/.test(str) || str.trim() !== str) {
+		return '"' + str.replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"';
+	}
+	return str;
+}
+
 function getDefaultAuthPath() {
 	if (obsidian.Platform.isWin) {
 		return 'AppData/Roaming/Granola/supabase.json';
@@ -79,6 +113,15 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 
 	onunload() {
 		this.clearAutoSync();
+		// Clean up UI elements to prevent memory leaks on plugin reload
+		if (this.statusBarItem) {
+			this.statusBarItem.remove();
+			this.statusBarItem = null;
+		}
+		if (this.ribbonIconEl) {
+			this.ribbonIconEl.remove();
+			this.ribbonIconEl = null;
+		}
 	}
 
 	async saveSettings() {
@@ -123,7 +166,10 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 
 		if (this.settings.autoSyncFrequency > 0) {
 			this.autoSyncInterval = window.setInterval(() => {
-				this.syncNotes();
+				this.syncNotes().catch(error => {
+					console.error('Auto-sync failed:', error.message);
+					this.updateStatusBar('Error', 'auto-sync failed');
+				});
 			}, this.settings.autoSyncFrequency);
 		}
 	}
@@ -282,25 +328,42 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 					continue;
 				}
 
-				const credentialsFile = fs.readFileSync(authPath, 'utf8');
-				const data = JSON.parse(credentialsFile);
+				let credentialsFile;
+				try {
+					credentialsFile = fs.readFileSync(authPath, 'utf8');
+				} catch (readError) {
+					console.error('Failed to read credentials file:', readError.message);
+					continue;
+				}
+
+				const { data, error: parseError } = safeJsonParse(credentialsFile, 'Granola credentials file');
+				if (parseError) {
+					console.error(parseError);
+					continue;
+				}
 
 				let accessToken = null;
 
 				if (data.workos_tokens) {
-					try {
-						const workosTokens = JSON.parse(data.workos_tokens);
-						accessToken = workosTokens.access_token;
-					} catch (e) {
+					// workos_tokens may be a string (needs parsing) or already an object
+					if (typeof data.workos_tokens === 'string') {
+						const { data: workosTokens, error: workosError } = safeJsonParse(data.workos_tokens, 'WorkOS tokens');
+						if (!workosError && workosTokens) {
+							accessToken = workosTokens.access_token;
+						}
+					} else if (typeof data.workos_tokens === 'object') {
 						accessToken = data.workos_tokens.access_token;
 					}
 				}
 
 				if (!accessToken && data.cognito_tokens) {
-					try {
-						const cognitoTokens = JSON.parse(data.cognito_tokens);
-						accessToken = cognitoTokens.access_token;
-					} catch (e) {
+					// cognito_tokens may be a string (needs parsing) or already an object
+					if (typeof data.cognito_tokens === 'string') {
+						const { data: cognitoTokens, error: cognitoError } = safeJsonParse(data.cognito_tokens, 'Cognito tokens');
+						if (!cognitoError && cognitoTokens) {
+							accessToken = cognitoTokens.access_token;
+						}
+					} else if (typeof data.cognito_tokens === 'object') {
 						accessToken = data.cognito_tokens.access_token;
 					}
 				}
@@ -309,11 +372,12 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 					return accessToken;
 				}
 			} catch (error) {
+				console.error('Error loading credentials:', error.message);
 				continue;
 			}
 		}
 
-		console.error('No valid credentials found');
+		console.error('No valid Granola credentials found. Please ensure Granola is installed and you are logged in.');
 		return null;
 	}
 
@@ -321,7 +385,6 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 		try {
 			const allDocs = [];
 			let offset = 0;
-			const batchSize = 100;
 			let hasMore = true;
 			const maxDocuments = this.settings.documentSyncLimit;
 
@@ -337,7 +400,7 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 						'X-Client-Version': '5.354.0'
 					},
 					body: JSON.stringify({
-						limit: batchSize,
+						limit: API_BATCH_SIZE,
 						offset: offset,
 						include_last_viewed_panel: true,
 						include_panels: true
@@ -353,10 +416,10 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 				const docs = apiResponse.docs;
 				allDocs.push(...docs);
 
-				if (docs.length < batchSize || allDocs.length >= maxDocuments) {
+				if (docs.length < API_BATCH_SIZE || allDocs.length >= maxDocuments) {
 					hasMore = false;
 				} else {
-					offset += batchSize;
+					offset += API_BATCH_SIZE;
 				}
 
 				if (allDocs.length > 100) {
@@ -762,19 +825,17 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 
 		for (const file of filesToSearch) {
 			try {
-				const content = await this.app.vault.read(file);
-				const frontmatterMatch = content.match(/^---\n([\s\S]*?)\n---/);
-
-				if (frontmatterMatch) {
-					const frontmatter = frontmatterMatch[1];
-					const granolaIdMatch = frontmatter.match(/granola_id:\s*(.+)$/m);
-
-					if (granolaIdMatch && granolaIdMatch[1].trim() === granolaId) {
+				// Use Obsidian's MetadataCache for efficient and reliable frontmatter parsing
+				const cache = this.app.metadataCache.getFileCache(file);
+				if (cache?.frontmatter?.granola_id) {
+					// Handle both quoted and unquoted values
+					const cachedId = String(cache.frontmatter.granola_id).trim();
+					if (cachedId === granolaId) {
 						return file;
 					}
 				}
 			} catch (error) {
-				console.error('Error reading file for Granola ID check:', file.path, error);
+				console.error('Error checking file for Granola ID:', file.path, error.message);
 			}
 		}
 
@@ -834,7 +895,6 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 	buildFrontmatter(doc) {
 		const title = doc.title || 'Untitled Granola Note';
 		const docId = doc.id || 'unknown_id';
-		const escapedTitle = title.replace(/"/g, '\\"');
 
 		const attendeeNames = this.extractAttendeeNames(doc);
 		const peopleLinks = this.generatePeopleLinks(attendeeNames);
@@ -845,7 +905,7 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 		// Custom frontmatter fields
 		if (this.settings.enableCustomFrontmatter) {
 			if (this.settings.customCategory) {
-				frontmatter += 'category:\n  - "' + this.settings.customCategory + '"\n';
+				frontmatter += 'category:\n  - ' + escapeYamlValue(this.settings.customCategory) + '\n';
 			}
 			frontmatter += 'type:\n';
 
@@ -861,7 +921,7 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 			frontmatter += 'people:\n';
 			if (peopleLinks.length > 0) {
 				for (const link of peopleLinks) {
-					frontmatter += '  - "' + link + '"\n';
+					frontmatter += '  - ' + escapeYamlValue(link) + '\n';
 				}
 			}
 
@@ -871,7 +931,7 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 				frontmatter += 'tags:\n';
 				const tags = this.settings.customTags.split(',').map(t => t.trim()).filter(t => t);
 				for (const tag of tags) {
-					frontmatter += '  - ' + tag + '\n';
+					frontmatter += '  - ' + escapeYamlValue(tag) + '\n';
 				}
 			}
 		} else {
@@ -883,7 +943,7 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 			frontmatter += 'people:\n';
 			if (peopleLinks.length > 0) {
 				for (const link of peopleLinks) {
-					frontmatter += '  - "' + link + '"\n';
+					frontmatter += '  - ' + escapeYamlValue(link) + '\n';
 				}
 			}
 		}
@@ -892,13 +952,13 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 		if (this.settings.includeEmails && attendeeEmails.length > 0) {
 			frontmatter += 'emails:\n';
 			for (const email of attendeeEmails) {
-				frontmatter += '  - ' + email + '\n';
+				frontmatter += '  - ' + escapeYamlValue(email) + '\n';
 			}
 		}
 
 		// Core Granola fields (always included)
-		frontmatter += 'granola_id: ' + docId + '\n';
-		frontmatter += 'title: "' + escapedTitle + '"\n';
+		frontmatter += 'granola_id: ' + escapeYamlValue(docId) + '\n';
+		frontmatter += 'title: ' + escapeYamlValue(title) + '\n';
 
 		if (this.settings.includeGranolaUrl) {
 			frontmatter += 'granola_url: https://notes.granola.ai/d/' + docId + '\n';
@@ -964,20 +1024,19 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 			// Check if file with same name already exists
 			let finalFilepath = filepath;
 			const existingFileByName = this.app.vault.getAbstractFileByPath(filepath);
-			if (existingFileByName) {
-				// Check if same granola_id
+			if (existingFileByName && existingFileByName instanceof obsidian.TFile) {
+				// Check if same granola_id using MetadataCache
 				try {
-					const existingContent = await this.app.vault.read(existingFileByName);
-					const frontmatterMatch = existingContent.match(/^---\n([\s\S]*?)\n---/);
-					if (frontmatterMatch) {
-						const granolaIdMatch = frontmatterMatch[1].match(/granola_id:\s*(.+)$/m);
-						if (granolaIdMatch && granolaIdMatch[1].trim() === docId) {
+					const cache = this.app.metadataCache.getFileCache(existingFileByName);
+					if (cache?.frontmatter?.granola_id) {
+						const cachedId = String(cache.frontmatter.granola_id).trim();
+						if (cachedId === docId) {
 							await this.app.vault.modify(existingFileByName, finalMarkdown);
 							return true;
 						}
 					}
 				} catch (error) {
-					console.error('Error checking existing file:', error);
+					console.error('Error checking existing file:', error.message);
 				}
 
 				if (this.settings.existingFileAction === 'skip') {
@@ -1217,14 +1276,20 @@ class GranolaSyncSettingTab extends obsidian.PluginSettingTab {
 
 		new obsidian.Setting(containerEl)
 			.setName('Document limit')
-			.setDesc('Maximum number of documents to sync')
+			.setDesc(`Maximum number of documents to sync (${MIN_DOCUMENT_LIMIT}-${MAX_DOCUMENT_LIMIT})`)
 			.addText(text => {
 				text.setPlaceholder('100');
 				text.setValue(String(this.plugin.settings.documentSyncLimit));
 				text.onChange(async (value) => {
 					const limit = parseInt(value);
-					if (!isNaN(limit) && limit > 0) {
+					if (!isNaN(limit) && limit >= MIN_DOCUMENT_LIMIT && limit <= MAX_DOCUMENT_LIMIT) {
 						this.plugin.settings.documentSyncLimit = limit;
+						await this.plugin.saveSettings();
+					} else if (!isNaN(limit)) {
+						// Clamp to valid range and notify user
+						const clampedLimit = Math.max(MIN_DOCUMENT_LIMIT, Math.min(MAX_DOCUMENT_LIMIT, limit));
+						this.plugin.settings.documentSyncLimit = clampedLimit;
+						text.setValue(String(clampedLimit));
 						await this.plugin.saveSettings();
 					}
 				});
