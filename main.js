@@ -1496,10 +1496,10 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 		}
 
 		if (doc.created_at) {
-			frontmatter += 'created_at: ' + doc.created_at + '\n';
+			frontmatter += 'created_at: ' + this.formatDateTimeProperty(doc.created_at) + '\n';
 		}
 		if (doc.updated_at) {
-			frontmatter += 'updated_at: ' + doc.updated_at + '\n';
+			frontmatter += 'updated_at: ' + this.formatDateTimeProperty(doc.updated_at) + '\n';
 		}
 
 		frontmatter += '---\n';
