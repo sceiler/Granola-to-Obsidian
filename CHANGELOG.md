@@ -2,6 +2,44 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.0.0] - 2026-02-04
+
+### Added
+- **🏢 Company Wiki Links**: Extract company names from attendees and add as `[[Company Name]]` in `org` field
+- **📍 Meeting Platform Detection**: Auto-detect Zoom, Google Meet, or Teams and add `[[Zoom]]`, `[[Google Meet]]`, or `[[Teams]]` to `loc` field
+- **👤 Auto-Detect User Name**: Automatically identify your name from calendar attendees using the `self` flag (no manual configuration needed)
+- **📎 Attachment Downloads**: Download meeting screenshots and files, embed images with `![[filename]]` using Obsidian's attachment folder setting
+- **📅 Calendar-Based Dates**: New frontmatter fields from Google Calendar:
+  - `date` / `dateEnd`: Scheduled meeting start/end times
+  - `noteStarted` / `noteEnded`: When Granola note-taking started/ended
+- **🔍 Attendee Filtering**: Filter attendees by calendar response status (accepted, declined, tentative, needsAction)
+- **🇩🇪 Smart Umlaut Conversion**: Converts German umlauts (`ae`→`ä`, `oe`→`ö`, `ue`→`ü`) while preserving names like Miguel, Michael, Joel
+- **📚 API Documentation**: Added Granola API reference in README with example responses and curl commands
+
+### Changed
+- **People as Wiki Links**: Attendees now appear as `[[John Smith]]` instead of tags
+- **Simplified Codebase**: Streamlined from ~2900 to ~2000 lines by removing rarely-used features
+- **Content Detection**: Notes with only attachments (no text) now sync correctly
+- **Notes Field Support**: Now reads `doc.notes` directly when `panels` is null (for notes without AI processing)
+
+### Removed
+- Periodic notes integration
+- Granola folders support
+- Folder filtering
+- Attendee tags (replaced with wiki links)
+- Folder tags
+- Date-based subfolders
+- Duplicate detection command
+- Reorganize notes command
+- Note prefix option
+- Experimental search scope
+
+### Technical
+- Uses Obsidian's MetadataCache for efficient frontmatter parsing
+- Safe JSON parsing with error handling
+- YAML value escaping for special characters
+- CDN URLs (CloudFront) handled without auth headers for attachments
+
 ## [1.8.0] - 2025-12-22
 ### Added
 - **📝 My Notes Support**: New option to include your personal "My Notes" content from Granola under a dedicated "## My Notes" section
