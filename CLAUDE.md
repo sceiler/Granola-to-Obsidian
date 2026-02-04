@@ -18,9 +18,15 @@ This fork is streamlined for a specific workflow:
 | Feature | Description |
 |---------|-------------|
 | People as wiki links | `[[John Smith]]` instead of tags |
-| German umlaut conversion | `ae` → `ä`, `oe` → `ö`, `ue` → `ü` |
-| Configurable frontmatter | Custom category, tags, empty fields for manual entry |
+| Company as wiki links | Organizations extracted from attendees as `[[Company Name]]` in `org` field |
+| Meeting platform detection | Auto-detects Zoom/Google Meet/Teams and adds `[[Platform]]` to `loc` field |
+| Auto-detect user | Automatically identifies your name from calendar (no manual config needed) |
+| Attachment downloads | Downloads meeting screenshots/files and embeds them in notes |
+| German umlaut conversion | `ae` → `ä`, `oe` → `ö`, `ue` → `ü` (smart: preserves Miguel, Michael, Joel, etc.) |
+| Calendar-based dates | `date`/`dateEnd` from Google Calendar, `noteStarted`/`noteEnded` from Granola timestamps |
+| Attendee filtering | Filter by calendar response status (accepted, tentative, declined) |
 | Email extraction | Attendee emails in frontmatter |
+| Configurable frontmatter | Custom category, tags, empty fields for manual entry |
 | Daily note integration | Adds today's meetings to your daily note |
 | Simplified settings | Removed rarely-used features |
 
@@ -33,7 +39,7 @@ All plugin code lives in `main.js` (~1450 lines) with two main classes:
 
 1. **`GranolaSyncPlugin`** (extends `obsidian.Plugin`)
    - Plugin lifecycle, initialization, and sync orchestration
-   - Key methods: `onload()`, `syncNotes()`, `loadCredentials()`, `fetchGranolaDocuments()`, `processDocument()`, `buildFrontmatter()`, `updateDailyNote()`
+   - Key methods: `onload()`, `syncNotes()`, `loadCredentials()`, `fetchGranolaDocuments()`, `processDocument()`, `buildFrontmatter()`, `updateDailyNote()`, `extractCompanyNames()`, `detectMeetingPlatform()`, `getMyNameFromDocument()`, `downloadAttachments()`, `convertGermanUmlauts()`
 
 2. **`GranolaSyncSettingTab`** (extends `obsidian.PluginSettingTab`)
    - Simplified settings UI
@@ -48,9 +54,13 @@ fetchGranolaDocuments(token) → [documents]
 for each document:
   → fetchTranscript() if enabled
   → processDocument()
+    → downloadAttachments() [if enabled]
     → extractAttendeeNames() + generatePeopleLinks()
-    → buildFrontmatter() [configurable template]
-    → buildNoteContent() [My Notes, Enhanced Notes, Transcript]
+    → extractCompanyNames() [for org wiki links]
+    → detectMeetingPlatform() [for loc: [[Zoom]]/[[Google Meet]]/[[Teams]]]
+    → getEffectiveMyName() [auto-detect or manual override]
+    → buildFrontmatter() [date, dateEnd, noteStarted, noteEnded, org, loc, people, attachments, etc.]
+    → buildNoteContent() [My Notes, Enhanced Notes, Transcript, Attachments]
     → generateFilename() [template + date formatting]
     → create/update file
   → track today's notes for daily note integration
@@ -97,6 +107,10 @@ if enableDailyNoteIntegration:
 | `includeGranolaUrl` | `true` | Add link back to Granola |
 | `includeEmails` | `true` | Include attendee emails |
 | `attendeeFilter` | `all` | Filter attendees by response status: `all`, `accepted`, `accepted_tentative`, `exclude_declined` |
+| `autoDetectMyName` | `true` | Auto-detect user name from calendar attendees |
+| `myName` | `''` | Manual override for user name |
+| `enableLocationDetection` | `true` | Auto-detect Zoom/Google Meet/Teams for `loc` field |
+| `downloadAttachments` | `true` | Download and embed meeting attachments (uses Obsidian's attachment folder setting) |
 | `enableCustomFrontmatter` | `true` | Use custom frontmatter template |
 | `enableDailyNoteIntegration` | `true` | Add meetings to daily note |
 | `dailyNoteSectionName` | `## Granola Meetings` | Section heading in daily note |
@@ -111,6 +125,13 @@ if enableDailyNoteIntegration:
 
 ### Modifying Frontmatter
 Edit `buildFrontmatter()` method. The frontmatter is YAML format between `---` delimiters.
+
+### German Umlaut Conversion Logic
+The `convertGermanUmlauts()` method converts `ae` → `ä`, `oe` → `ö`, `ue` → `ü` but uses pattern detection to preserve non-German names:
+- `uel` not followed by another `l` → preserved (Miguel, Samuel, Manuela)
+- `ael` anywhere → preserved (Michael, Raphael, Michaela)
+- `oel` anywhere → preserved (Joel, Noel)
+- Otherwise → converted (Mueller → Müller, Schroeder → Schröder)
 
 ### Adding New API Integration
 1. Get auth token via `loadCredentials()`

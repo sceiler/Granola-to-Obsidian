@@ -1,16 +1,24 @@
 # Granola Sync for Obsidian (Fork)
 
-> This is a simplified fork of [dannymcc/Granola-to-Obsidian](https://github.com/dannymcc/Granola-to-Obsidian) focused on core sync functionality with configurable frontmatter.
+> A fork of [dannymcc/Granola-to-Obsidian](https://github.com/dannymcc/Granola-to-Obsidian) with enhanced metadata extraction, wiki-link formatting, and configurable frontmatter.
 
 An Obsidian plugin that automatically syncs your [Granola AI](https://granola.ai) meeting notes to your Obsidian vault.
+
+**Key differences from original**: Wiki links for people/companies, calendar-based date fields, meeting platform detection, auto-detection of your name, attachment downloads, attendee filtering, smart German umlaut conversion. See [Differences from Original](#differences-from-original) for details.
 
 ## Features
 
 - **Automatic & Manual Sync**: Sync on demand or set auto-sync intervals (1 min to 24 hours)
 - **Configurable Frontmatter**: Customize category, tags, and choose which fields to include
 - **People as Wiki Links**: Attendees appear as `[[John Smith]]` for easy linking
+- **Company Wiki Links**: Organizations extracted from attendees as `[[Company Name]]` in `org` field
+- **Meeting Platform Detection**: Automatically detects Zoom, Google Meet, or Teams and adds `[[Zoom]]`, `[[Google Meet]]`, or `[[Teams]]` to the `loc` field
+- **Auto-Detect Your Name**: Automatically identifies you from calendar attendees (no manual configuration needed)
+- **Attachment Downloads**: Downloads meeting screenshots and files, embeds them in notes
+- **Calendar-Based Dates**: `date`/`dateEnd` from scheduled calendar times, `noteStarted`/`noteEnded` from actual Granola timestamps
+- **Attendee Filtering**: Filter by calendar response status (accepted, tentative, declined, or include everyone)
+- **Smart German Umlaut Conversion**: Converts `ae` → `ä`, `oe` → `ö`, `ue` → `ü` while preserving names like Miguel, Michael, Joel
 - **Daily Note Integration**: Automatically adds today's meetings to your daily note
-- **German Umlaut Support**: Converts `ae` → `ä`, `oe` → `ö`, `ue` → `ü` in names
 - **Smart Content Detection**: Only creates notes when Granola has finished processing (no empty notes)
 
 ## Frontmatter Example
@@ -20,15 +28,23 @@ An Obsidian plugin that automatically syncs your [Granola AI](https://granola.ai
 category:
   - "[[Meetings]]"
 type:
-date: 2026-02-03T14:00:06
+date: 2026-02-03T14:00:00        # Scheduled meeting start (from calendar)
+dateEnd: 2026-02-03T14:30:00     # Scheduled meeting end (from calendar)
+noteStarted: 2026-02-03T14:00:06 # When Granola note-taking started
+noteEnded: 2026-02-03T14:50:53   # Last note update (proxy for meeting end)
 org:
+  - "[[Acme Corp]]"              # Companies extracted from attendees
+  - "[[Globex Inc]]"
 loc:
+  - "[[Zoom]]"                   # Auto-detected from calendar (Zoom/Google Meet/Teams)
 people:
   - "[[John Smith]]"
   - "[[Jane Doe]]"
 topics:
 tags:
   - meetings
+attachments:                      # Downloaded meeting attachments
+  - "[[2026-02-03_14-00_screenshot.png]]"
 emails:
   - john.smith@example.com
   - jane.doe@example.com
@@ -90,10 +106,22 @@ Access plugin settings via **Settings → Community Plugins → Granola Sync**
 |---------|-------------|
 | Include Granola URL | Link back to original Granola note |
 | Include Emails | Attendee email addresses |
+| Attendee Filter | Filter by calendar response: `Include everyone`, `Only accepted`, `Accepted + tentative`, `Exclude declined` |
 | Exclude My Name | Filter your name from people list |
+| Auto-Detect My Name | Automatically detect your name from calendar (default: on) |
+| My Name (Override) | Manual override if auto-detection doesn't work |
+| Detect Meeting Platform | Auto-detect Zoom/Google Meet/Teams for `loc` field (default: on) |
 | Enable Custom Frontmatter | Add category, type, org, loc, topics fields |
 | Category | Default category value (e.g., `[[Meetings]]`) |
 | Tags | Default tags (comma-separated) |
+
+### Attachments
+
+| Setting | Description |
+|---------|-------------|
+| Download Attachments | Download meeting attachments and embed in notes (default: on) |
+
+Attachments are saved to the folder configured in **Obsidian Settings → Files & Links → Default location for new attachments**. Images are embedded with `![[filename]]`, other files are linked with `[[filename]]`.
 
 ### Daily Note Integration
 
@@ -104,22 +132,196 @@ Access plugin settings via **Settings → Community Plugins → Granola Sync**
 
 ## Differences from Original
 
-This fork is streamlined for a specific workflow:
+This fork is streamlined for a specific workflow with enhanced metadata extraction:
+
+### Added Features (not in original)
+
+| Feature | Description |
+|---------|-------------|
+| Company wiki links | `org` field populated with `[[Company Name]]` from attendee enrichment data |
+| Meeting platform detection | `loc` field auto-populated with `[[Zoom]]`, `[[Google Meet]]`, or `[[Teams]]` |
+| Auto-detect user | Automatically identifies your name from calendar attendees (no manual config needed) |
+| Attachment downloads | Downloads screenshots and files, embeds them in notes |
+| Calendar-based dates | `date`/`dateEnd` from scheduled times, `noteStarted`/`noteEnded` from Granola timestamps |
+| Attendee filtering | Filter by calendar response status (accepted, declined, tentative) |
+| Smart umlaut conversion | Preserves names like Miguel, Michael, Joel while converting German surnames |
+
+### Changed Features
 
 | Feature | Original | This Fork |
 |---------|----------|-----------|
 | People format | Tags (`person/john-smith`) | Wiki links (`[[John Smith]]`) |
-| Frontmatter | Fixed format | Configurable |
-| Empty fields | Not included | Optional (`type`, `org`, `loc`, `topics`) |
-| Codebase | ~2900 lines | ~1470 lines |
+| Frontmatter | Fixed format | Configurable template with empty fields |
+| Date source | `created_at` only | Calendar start/end + note start/end timestamps |
+| Umlaut conversion | Simple replacement | Pattern-aware (preserves non-German names) |
 
-**Removed features**: Periodic notes integration, Granola folders, folder filtering, attendee tags, folder tags, date-based subfolders, duplicate detection command, reorganize notes command, note prefix, experimental search scope.
+### Removed Features
+
+The following features were removed to simplify the codebase:
+
+- Periodic notes integration
+- Granola folders support
+- Folder filtering
+- Attendee tags (replaced with wiki links)
+- Folder tags
+- Date-based subfolders
+- Duplicate detection command
+- Reorganize notes command
+- Note prefix option
+- Experimental search scope
 
 ## Requirements
 
 - Obsidian v1.6.6+
 - Active Granola AI account
 - Granola desktop app installed and authenticated
+
+## Granola API Reference
+
+This plugin uses Granola's internal API. Below is documentation for developers who want to understand or extend the integration.
+
+### Authentication
+
+Granola stores authentication tokens locally:
+- **macOS**: `~/Library/Application Support/Granola/supabase.json`
+- **Linux**: `~/.config/Granola/supabase.json`
+- **Windows**: `%APPDATA%/Granola/supabase.json`
+
+Extract the access token:
+
+```bash
+# macOS/Linux
+cat ~/Library/Application\ Support/Granola/supabase.json | \
+  python3 -c "import json,sys; data=json.load(sys.stdin); tokens=json.loads(data['workos_tokens']); print(tokens['access_token'])"
+```
+
+### Fetching Documents
+
+```bash
+TOKEN="your_access_token_here"
+
+curl -s --compressed "https://api.granola.ai/v2/get-documents" \
+  -H "Authorization: Bearer ${TOKEN}" \
+  -H "Content-Type: application/json" \
+  -X POST \
+  -d '{"limit": 10, "offset": 0}' | jq '.docs[0]'
+```
+
+### Example API Response (Anonymized)
+
+```json
+{
+  "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "created_at": "2025-03-07T13:00:13.451Z",
+  "updated_at": "2025-09-15T11:30:57.056Z",
+  "title": "Weekly Team Standup",
+  "notes": {
+    "type": "doc",
+    "content": [{"type": "paragraph", "attrs": {"id": "..."}}]
+  },
+  "notes_plain": "",
+  "notes_markdown": "",
+  "transcribe": false,
+  "valid_meeting": true,
+  "privacy_mode_enabled": true,
+  "creation_source": "macOS",
+  "google_calendar_event": {
+    "id": "abc123xyz",
+    "summary": "Weekly Team Standup",
+    "start": {"dateTime": "2025-03-07T14:00:00+01:00", "timeZone": "Europe/Berlin"},
+    "end": {"dateTime": "2025-03-07T14:30:00+01:00", "timeZone": "Europe/Berlin"},
+    "creator": {"email": "organizer@example.com"},
+    "organizer": {"email": "organizer@example.com"},
+    "attendees": [
+      {
+        "email": "organizer@example.com",
+        "organizer": true,
+        "responseStatus": "accepted"
+      },
+      {
+        "email": "attendee1@example.com",
+        "self": true,
+        "responseStatus": "accepted"
+      },
+      {
+        "email": "attendee2@example.com",
+        "responseStatus": "accepted"
+      },
+      {
+        "email": "attendee3@example.com",
+        "responseStatus": "needsAction"
+      }
+    ],
+    "location": "https://example.zoom.us/j/123456789",
+    "conferenceData": {
+      "entryPoints": [{"uri": "https://example.zoom.us/j/123456789", "entryPointType": "video"}]
+    }
+  },
+  "people": {
+    "creator": {
+      "name": "Your Name",
+      "email": "you@example.com",
+      "details": {
+        "person": {
+          "name": {"fullName": "Your Name"},
+          "avatar": "https://..."
+        },
+        "company": {"name": "Your Company"}
+      }
+    },
+    "attendees": [
+      {
+        "email": "colleague@example.com",
+        "details": {
+          "person": {
+            "name": {"fullName": "Colleague Name"},
+            "avatar": "https://..."
+          },
+          "company": {"name": "Their Company"}
+        }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "my_notes",
+      "content": {"type": "doc", "content": [...]}
+    },
+    {
+      "type": "enhanced_notes",
+      "content": {"type": "doc", "content": [...]}
+    }
+  ],
+  "chapters": null,
+  "meeting_end_count": 1,
+  "summary": null,
+  "has_shareable_link": false,
+  "attachments": []
+}
+```
+
+### Key Fields
+
+| Field | Description |
+|-------|-------------|
+| `id` | Unique document identifier |
+| `created_at` | When Granola note-taking started (you joined the meeting) |
+| `updated_at` | Last update timestamp (proxy for meeting end) |
+| `google_calendar_event.start.dateTime` | Scheduled meeting start time |
+| `google_calendar_event.end.dateTime` | Scheduled meeting end time |
+| `google_calendar_event.attendees[].responseStatus` | Calendar response: `accepted`, `declined`, `tentative`, `needsAction` |
+| `people.attendees[].details.company.name` | Attendee's company (from enrichment) |
+| `panels` | Contains `my_notes` and `enhanced_notes` in ProseMirror format |
+
+### Fetching Transcripts
+
+```bash
+curl -s --compressed "https://api.granola.ai/v1/get-document-transcript" \
+  -H "Authorization: Bearer ${TOKEN}" \
+  -H "Content-Type: application/json" \
+  -X POST \
+  -d '{"document_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"}'
+```
 
 ## Credits
 

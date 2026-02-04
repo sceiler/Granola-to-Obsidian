@@ -64,7 +64,12 @@ const DEFAULT_SETTINGS = {
 	includeEmails: true,
 	attendeeFilter: 'all', // 'all', 'accepted', 'accepted_tentative', 'exclude_declined'
 	excludeMyNameFromPeople: true,
+	autoDetectMyName: true,
 	myName: '',
+	// Location detection
+	enableLocationDetection: true,
+	// Attachments
+	downloadAttachments: true,
 	// Custom frontmatter template fields
 	enableCustomFrontmatter: true,
 	customCategory: '[[Meetings]]',
@@ -275,7 +280,7 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 						doc.transcript = this.transcriptToMarkdown(transcriptData);
 					}
 
-					const success = await this.processDocument(doc);
+					const success = await this.processDocument(doc, token);
 					if (success) {
 						syncedCount++;
 					}
@@ -639,26 +644,325 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 	convertGermanUmlauts(name) {
 		if (!name) return name;
 
-		return name
-			.replace(/\bAe/g, 'Ä')
-			.replace(/\bOe/g, 'Ö')
-			.replace(/\bUe/g, 'Ü')
-			.replace(/ae/g, 'ä')
-			.replace(/oe/g, 'ö')
-			.replace(/ue/g, 'ü');
+		// Patterns where ae/oe/ue should NOT be converted to umlauts
+		// These are common in Spanish, Portuguese, Hebrew, and English names
+		const preservePatterns = [
+			/uel([^l]|$)/i,  // Miguel, Samuel, Manuela, Samuelson (uel not followed by another l)
+			/ael/i,           // Michael, Raphael, Israel, Michaela (any ael)
+			/oel/i,           // Joel, Noel (any oel)
+		];
+
+		// Split by whitespace and process each word
+		const words = name.split(/(\s+)/);
+
+		return words.map(word => {
+			// Preserve whitespace
+			if (/^\s+$/.test(word)) return word;
+
+			// Check if this word matches any preserve pattern
+			for (const pattern of preservePatterns) {
+				if (pattern.test(word)) {
+					return word; // Don't convert this word
+				}
+			}
+
+			// Safe to convert German umlauts in this word
+			return word
+				.replace(/\bAe/g, 'Ä')
+				.replace(/\bOe/g, 'Ö')
+				.replace(/\bUe/g, 'Ü')
+				.replace(/ae/g, 'ä')
+				.replace(/oe/g, 'ö')
+				.replace(/ue/g, 'ü');
+		}).join('');
 	}
 
-	generatePeopleLinks(attendeeNames) {
+	/**
+	 * Extract unique company names from document attendees
+	 */
+	extractCompanyNames(doc) {
+		const companies = new Set();
+		const responseStatusMap = this.buildResponseStatusMap(doc);
+
+		try {
+			// Extract from people.attendees
+			if (doc.people && doc.people.attendees && Array.isArray(doc.people.attendees)) {
+				for (const attendee of doc.people.attendees) {
+					// Check response status filter using email lookup
+					const email = attendee.email ? attendee.email.toLowerCase() : null;
+					const responseStatus = email ? responseStatusMap.get(email) : null;
+					if (!this.shouldIncludeAttendee(responseStatus)) {
+						continue;
+					}
+
+					if (attendee.details && attendee.details.company && attendee.details.company.name) {
+						const companyName = attendee.details.company.name.trim();
+						if (companyName) {
+							companies.add(companyName);
+						}
+					}
+				}
+			}
+
+			// Also check creator's company
+			if (doc.people && doc.people.creator) {
+				const creator = doc.people.creator;
+				if (creator.details && creator.details.company && creator.details.company.name) {
+					const companyName = creator.details.company.name.trim();
+					if (companyName) {
+						companies.add(companyName);
+					}
+				}
+			}
+		} catch (error) {
+			console.error('Error extracting company names:', error);
+		}
+
+		return Array.from(companies);
+	}
+
+	/**
+	 * Detect meeting platform from calendar event location or conference data
+	 * Returns wiki link format: [[Zoom]], [[Google Meet]], [[Teams]], or empty string
+	 */
+	detectMeetingPlatform(doc) {
+		if (!this.settings.enableLocationDetection) {
+			return '';
+		}
+
+		try {
+			const calendarEvent = doc.google_calendar_event;
+			if (!calendarEvent) {
+				return '';
+			}
+
+			// Check location field
+			const location = (calendarEvent.location || '').toLowerCase();
+
+			// Check conference data entry points
+			let conferenceUrls = [];
+			if (calendarEvent.conferenceData && calendarEvent.conferenceData.entryPoints) {
+				conferenceUrls = calendarEvent.conferenceData.entryPoints
+					.filter(ep => ep.uri)
+					.map(ep => ep.uri.toLowerCase());
+			}
+
+			// Combine all URLs to check
+			const allUrls = [location, ...conferenceUrls].join(' ');
+
+			// Detect platform
+			if (allUrls.includes('zoom.us') || allUrls.includes('zoom.com')) {
+				return '[[Zoom]]';
+			}
+			if (allUrls.includes('meet.google.com') || allUrls.includes('hangouts.google.com')) {
+				return '[[Google Meet]]';
+			}
+			if (allUrls.includes('teams.microsoft.com') || allUrls.includes('teams.live.com')) {
+				return '[[Teams]]';
+			}
+
+			// No recognized platform - return empty (could be in-person, phone, etc.)
+			return '';
+		} catch (error) {
+			console.error('Error detecting meeting platform:', error);
+			return '';
+		}
+	}
+
+	/**
+	 * Auto-detect the current user's name from the document
+	 * Uses the attendee with self: true flag
+	 */
+	getMyNameFromDocument(doc) {
+		try {
+			// First check google_calendar_event.attendees for self: true
+			if (doc.google_calendar_event && doc.google_calendar_event.attendees) {
+				for (const attendee of doc.google_calendar_event.attendees) {
+					if (attendee.self === true) {
+						// Found self, now get the full name from people.attendees or people.creator
+						const selfEmail = attendee.email?.toLowerCase();
+
+						// Check if self is the creator
+						if (doc.people && doc.people.creator) {
+							const creatorEmail = doc.people.creator.email?.toLowerCase();
+							if (creatorEmail === selfEmail) {
+								if (doc.people.creator.details?.person?.name?.fullName) {
+									return doc.people.creator.details.person.name.fullName;
+								}
+								if (doc.people.creator.name) {
+									return doc.people.creator.name;
+								}
+							}
+						}
+
+						// Check people.attendees
+						if (doc.people && doc.people.attendees) {
+							for (const person of doc.people.attendees) {
+								if (person.email?.toLowerCase() === selfEmail) {
+									if (person.details?.person?.name?.fullName) {
+										return person.details.person.name.fullName;
+									}
+								}
+							}
+						}
+
+						// Fallback: use displayName from calendar attendee
+						if (attendee.displayName) {
+							return attendee.displayName;
+						}
+
+						// Last resort: extract from email
+						if (selfEmail) {
+							return selfEmail.split('@')[0]
+								.replace(/[._-]/g, ' ')
+								.split(' ')
+								.map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+								.join(' ');
+						}
+					}
+				}
+			}
+
+			return null;
+		} catch (error) {
+			console.error('Error auto-detecting user name:', error);
+			return null;
+		}
+	}
+
+	/**
+	 * Get the effective "my name" for filtering - auto-detected or manual override
+	 */
+	getEffectiveMyName(doc) {
+		// If manual override is set, use it
+		if (this.settings.myName && this.settings.myName.trim()) {
+			return this.settings.myName.trim();
+		}
+
+		// If auto-detect is enabled, try to detect
+		if (this.settings.autoDetectMyName) {
+			const autoDetected = this.getMyNameFromDocument(doc);
+			if (autoDetected) {
+				return autoDetected;
+			}
+		}
+
+		return '';
+	}
+
+	/**
+	 * Download attachments from a document and save them to the vault
+	 * Returns array of local file paths (relative to vault)
+	 */
+	/**
+	 * Get the attachment folder path based on Obsidian's settings
+	 * @param {string} noteFolder - The folder where the note will be created
+	 * @returns {string} The attachment folder path
+	 */
+	getAttachmentFolder(noteFolder) {
+		// Get Obsidian's attachment folder setting
+		const attachmentFolderPath = this.app.vault.getConfig('attachmentFolderPath') || '';
+
+		if (!attachmentFolderPath || attachmentFolderPath === '/') {
+			// Vault root
+			return '';
+		} else if (attachmentFolderPath === './') {
+			// Same folder as current file
+			return noteFolder;
+		} else if (attachmentFolderPath.startsWith('./')) {
+			// Subfolder under current file's folder
+			const subfolder = attachmentFolderPath.slice(2);
+			return noteFolder ? path.join(noteFolder, subfolder) : subfolder;
+		} else {
+			// Specified folder in vault
+			return attachmentFolderPath;
+		}
+	}
+
+	async downloadAttachments(doc, token, noteFolder) {
+		if (!this.settings.downloadAttachments) {
+			return [];
+		}
+
+		const attachments = doc.attachments;
+		if (!attachments || !Array.isArray(attachments) || attachments.length === 0) {
+			return [];
+		}
+
+		const downloadedFiles = [];
+		const attachmentDir = this.getAttachmentFolder(noteFolder);
+
+		try {
+			// Ensure attachment directory exists (if not vault root)
+			if (attachmentDir) {
+				const folder = this.app.vault.getFolderByPath(attachmentDir);
+				if (!folder) {
+					await this.app.vault.createFolder(attachmentDir);
+				}
+			}
+
+			for (const attachment of attachments) {
+				try {
+					// Attachments may have different structures - handle common cases
+					const url = attachment.url || attachment.file_url || attachment.download_url;
+					let filename = attachment.filename || attachment.name || `attachment_${Date.now()}`;
+
+					if (!url) {
+						continue;
+					}
+
+					// Make filename unique by prefixing with note date to avoid conflicts
+					const noteDate = doc.created_at ? this.formatDate(doc.created_at, 'YYYY-MM-DD_HH-mm') : '';
+					if (noteDate && !filename.startsWith(noteDate)) {
+						filename = noteDate + '_' + filename;
+					}
+
+					// Download the attachment
+					const response = await obsidian.requestUrl({
+						url: url,
+						method: 'GET',
+						headers: {
+							'Authorization': 'Bearer ' + token,
+						}
+					});
+
+					if (response.arrayBuffer) {
+						const filePath = attachmentDir ? path.join(attachmentDir, filename) : filename;
+
+						// Check if file already exists
+						const existingFile = this.app.vault.getAbstractFileByPath(filePath);
+						if (!existingFile) {
+							await this.app.vault.createBinary(filePath, response.arrayBuffer);
+						}
+
+						// Return just the filename for embedding with ![[filename]]
+						// Obsidian will resolve the link automatically
+						downloadedFiles.push(filename);
+					}
+				} catch (attachmentError) {
+					console.error('Error downloading attachment:', attachmentError);
+				}
+			}
+		} catch (error) {
+			console.error('Error processing attachments:', error);
+		}
+
+		return downloadedFiles;
+	}
+
+	generatePeopleLinks(attendeeNames, doc) {
 		if (!attendeeNames || attendeeNames.length === 0) {
 			return [];
 		}
 
 		const links = [];
+		const myName = this.getEffectiveMyName(doc);
+
 		for (let name of attendeeNames) {
 			name = this.convertGermanUmlauts(name);
 
-			if (this.settings.excludeMyNameFromPeople && this.settings.myName) {
-				const myNameLower = this.settings.myName.toLowerCase().trim();
+			if (this.settings.excludeMyNameFromPeople && myName) {
+				const myNameLower = myName.toLowerCase().trim();
 				const nameLower = name.toLowerCase().trim();
 
 				if (nameLower === myNameLower) {
@@ -943,7 +1247,7 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 		return null;
 	}
 
-	buildNoteContent(doc, transcript) {
+	buildNoteContent(doc, transcript, attachmentFilenames = []) {
 		const sections = [];
 		const noteTitle = doc.title || 'Untitled Granola Note';
 
@@ -973,16 +1277,40 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 			sections.push('\n## Transcript\n\n' + transcript);
 		}
 
+		// Add attachments section with embedded images
+		if (attachmentFilenames.length > 0) {
+			const attachmentLines = attachmentFilenames.map(filePath => {
+				// Check if it's an image file
+				const ext = filePath.split('.').pop().toLowerCase();
+				const imageExtensions = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp'];
+				if (imageExtensions.includes(ext)) {
+					// Embed image
+					return '![[' + filePath + ']]';
+				} else {
+					// Link to file
+					return '[[' + filePath + ']]';
+				}
+			});
+			sections.push('\n## Attachments\n\n' + attachmentLines.join('\n'));
+		}
+
 		return sections.join('\n');
 	}
 
-	buildFrontmatter(doc) {
+	buildFrontmatter(doc, attachmentFilenames = []) {
 		const title = doc.title || 'Untitled Granola Note';
 		const docId = doc.id || 'unknown_id';
 
 		const attendeeNames = this.extractAttendeeNames(doc);
-		const peopleLinks = this.generatePeopleLinks(attendeeNames);
+		const peopleLinks = this.generatePeopleLinks(attendeeNames, doc);
 		const attendeeEmails = this.extractAttendeeEmails(doc);
+		const companyNames = this.extractCompanyNames(doc);
+		const meetingPlatform = this.detectMeetingPlatform(doc);
+
+		// Get calendar event times
+		const calendarEvent = doc.google_calendar_event;
+		const scheduledStart = calendarEvent?.start?.dateTime;
+		const scheduledEnd = calendarEvent?.end?.dateTime;
 
 		let frontmatter = '---\n';
 
@@ -993,14 +1321,50 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 			}
 			frontmatter += 'type:\n';
 
-			if (doc.created_at) {
+			// Use calendar event start time for "date"
+			if (scheduledStart) {
+				frontmatter += 'date: ' + this.formatDateTimeProperty(scheduledStart) + '\n';
+			} else if (doc.created_at) {
 				frontmatter += 'date: ' + this.formatDateTimeProperty(doc.created_at) + '\n';
 			} else {
 				frontmatter += 'date:\n';
 			}
 
+			// Add dateEnd from calendar event end time
+			if (scheduledEnd) {
+				frontmatter += 'dateEnd: ' + this.formatDateTimeProperty(scheduledEnd) + '\n';
+			} else {
+				frontmatter += 'dateEnd:\n';
+			}
+
+			// Add noteStarted (when Granola recording/note-taking started)
+			if (doc.created_at) {
+				frontmatter += 'noteStarted: ' + this.formatDateTimeProperty(doc.created_at) + '\n';
+			} else {
+				frontmatter += 'noteStarted:\n';
+			}
+
+			// Add noteEnded (when note was last updated - proxy for meeting end)
+			if (doc.updated_at) {
+				frontmatter += 'noteEnded: ' + this.formatDateTimeProperty(doc.updated_at) + '\n';
+			} else {
+				frontmatter += 'noteEnded:\n';
+			}
+
+			// Org with company wiki links
 			frontmatter += 'org:\n';
-			frontmatter += 'loc:\n';
+			if (companyNames.length > 0) {
+				for (const company of companyNames) {
+					frontmatter += '  - ' + escapeYamlValue('[[' + company + ']]') + '\n';
+				}
+			}
+
+			// Location - detected meeting platform as wiki link
+			if (meetingPlatform) {
+				frontmatter += 'loc:\n  - ' + escapeYamlValue(meetingPlatform) + '\n';
+			} else {
+				frontmatter += 'loc:\n';
+			}
 
 			frontmatter += 'people:\n';
 			if (peopleLinks.length > 0) {
@@ -1018,10 +1382,24 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 					frontmatter += '  - ' + escapeYamlValue(tag) + '\n';
 				}
 			}
+
+			// Attachments
+			if (attachmentFilenames.length > 0) {
+				frontmatter += 'attachments:\n';
+				for (const attachmentPath of attachmentFilenames) {
+					frontmatter += '  - ' + escapeYamlValue('[[' + attachmentPath + ']]') + '\n';
+				}
+			}
 		} else {
 			// Simplified frontmatter without custom fields
-			if (doc.created_at) {
+			if (scheduledStart) {
+				frontmatter += 'date: ' + this.formatDateTimeProperty(scheduledStart) + '\n';
+			} else if (doc.created_at) {
 				frontmatter += 'date: ' + this.formatDateTimeProperty(doc.created_at) + '\n';
+			}
+
+			if (scheduledEnd) {
+				frontmatter += 'dateEnd: ' + this.formatDateTimeProperty(scheduledEnd) + '\n';
 			}
 
 			frontmatter += 'people:\n';
@@ -1059,7 +1437,7 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 		return frontmatter;
 	}
 
-	async processDocument(doc) {
+	async processDocument(doc, token) {
 		try {
 			const title = doc.title || 'Untitled Granola Note';
 			const docId = doc.id || 'unknown_id';
@@ -1081,6 +1459,9 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 				return false;
 			}
 
+			// Download attachments if enabled (pass the note folder for relative path calculation)
+			const attachmentFilenames = await this.downloadAttachments(doc, token, this.settings.syncDirectory);
+
 			const existingFile = await this.findExistingNoteByGranolaId(docId);
 
 			if (existingFile) {
@@ -1088,8 +1469,8 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 					return true;
 				}
 
-				const frontmatter = this.buildFrontmatter(doc);
-				const noteContent = this.buildNoteContent(doc, transcript);
+				const frontmatter = this.buildFrontmatter(doc, attachmentFilenames);
+				const noteContent = this.buildNoteContent(doc, transcript, attachmentFilenames);
 				const finalMarkdown = frontmatter + noteContent;
 
 				await this.app.vault.process(existingFile, () => finalMarkdown);
@@ -1097,8 +1478,8 @@ class GranolaSyncPlugin extends obsidian.Plugin {
 			}
 
 			// Create new note
-			const frontmatter = this.buildFrontmatter(doc);
-			const noteContent = this.buildNoteContent(doc, transcript);
+			const frontmatter = this.buildFrontmatter(doc, attachmentFilenames);
+			const noteContent = this.buildNoteContent(doc, transcript, attachmentFilenames);
 			const finalMarkdown = frontmatter + noteContent;
 
 			const filename = this.generateFilename(doc) + '.md';
@@ -1531,20 +1912,76 @@ class GranolaSyncSettingTab extends obsidian.PluginSettingTab {
 				toggle.onChange(async (value) => {
 					this.plugin.settings.excludeMyNameFromPeople = value;
 					await this.plugin.saveSettings();
+					this.display();
 				});
 			});
 
+		if (this.plugin.settings.excludeMyNameFromPeople) {
+			new obsidian.Setting(containerEl)
+				.setName('Auto-detect my name')
+				.setDesc('Automatically detect your name from calendar attendees (uses the attendee marked as "self")')
+				.addToggle(toggle => {
+					toggle.setValue(this.plugin.settings.autoDetectMyName);
+					toggle.onChange(async (value) => {
+						this.plugin.settings.autoDetectMyName = value;
+						await this.plugin.saveSettings();
+						this.display();
+					});
+				});
+
+			new obsidian.Setting(containerEl)
+				.setName('My name (override)')
+				.setDesc(this.plugin.settings.autoDetectMyName
+					? 'Leave empty to use auto-detected name, or enter a name to override'
+					: 'Your name as it appears in Granola meetings')
+				.addText(text => {
+					text.setPlaceholder(this.plugin.settings.autoDetectMyName ? 'Auto-detected' : 'John Doe');
+					text.setValue(this.plugin.settings.myName);
+					text.onChange(async (value) => {
+						this.plugin.settings.myName = value;
+						await this.plugin.saveSettings();
+					});
+				});
+		}
+
 		new obsidian.Setting(containerEl)
-			.setName('My name')
-			.setDesc('Your name as it appears in Granola meetings')
-			.addText(text => {
-				text.setPlaceholder('John Doe');
-				text.setValue(this.plugin.settings.myName);
-				text.onChange(async (value) => {
-					this.plugin.settings.myName = value;
+			.setName('Detect meeting platform')
+			.setDesc('Automatically detect Zoom, Google Meet, or Teams from calendar and add as wiki link to loc field')
+			.addToggle(toggle => {
+				toggle.setValue(this.plugin.settings.enableLocationDetection);
+				toggle.onChange(async (value) => {
+					this.plugin.settings.enableLocationDetection = value;
 					await this.plugin.saveSettings();
 				});
 			});
+
+		// Attachments
+		containerEl.createEl('h3', {text: 'Attachments'});
+
+		new obsidian.Setting(containerEl)
+			.setName('Download attachments')
+			.setDesc('Download meeting attachments (screenshots, etc.) and embed them in the note')
+			.addToggle(toggle => {
+				toggle.setValue(this.plugin.settings.downloadAttachments);
+				toggle.onChange(async (value) => {
+					this.plugin.settings.downloadAttachments = value;
+					await this.plugin.saveSettings();
+					this.display();
+				});
+			});
+
+		if (this.plugin.settings.downloadAttachments) {
+			// Get Obsidian's attachment folder for display
+			const obsidianAttachmentFolder = this.app.vault.getConfig('attachmentFolderPath') || 'Vault root';
+			containerEl.createEl('p', {
+				text: 'Attachments will be saved to: ' + obsidianAttachmentFolder,
+				cls: 'setting-item-description'
+			}).style.marginTop = '-10px';
+			containerEl.createEl('p', {
+				text: 'Configure attachment location in Obsidian Settings → Files & Links → Default location for new attachments',
+				cls: 'setting-item-description'
+			}).style.fontSize = '0.85em';
+		}
 
 		// Custom frontmatter template
 		containerEl.createEl('h3', {text: 'Custom frontmatter template'});
