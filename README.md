@@ -342,7 +342,7 @@ curl -s --compressed "https://api.granola.ai/v1/get-document-transcript" \
 
 ## Development
 
-This plugin is written in TypeScript and uses esbuild for bundling.
+The original plugin was written in plain JavaScript (~2,200 lines in a single file). This fork has been refactored to TypeScript with a modular architecture and esbuild for bundling.
 
 ### Why TypeScript?
 
