@@ -340,6 +340,42 @@ curl -s --compressed "https://api.granola.ai/v1/get-document-transcript" \
   -d '{"document_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"}'
 ```
 
+## Development
+
+This plugin is written in TypeScript and uses esbuild for bundling.
+
+### Project Structure
+
+```
+src/
+├── main.ts        # Main plugin class with sync logic
+├── settings.ts    # Settings tab UI
+├── types.ts       # TypeScript interfaces
+├── constants.ts   # API constants and defaults
+└── utils.ts       # Utility functions
+```
+
+### Building
+
+```bash
+# Install dependencies
+npm install
+
+# Development (watch mode)
+npm run dev
+
+# Production build
+npm run build
+```
+
+The build outputs `main.js` to the project root.
+
+### Testing Locally
+
+1. Build the plugin: `npm run build`
+2. Copy `main.js`, `manifest.json`, `styles.css` to your vault's `.obsidian/plugins/granola-sync/`
+3. Reload Obsidian or the plugin
+
 ## Credits
 
 - **Original Plugin**: [Danny McClelland](https://github.com/dannymcc) - [Granola-to-Obsidian](https://github.com/dannymcc/Granola-to-Obsidian)
