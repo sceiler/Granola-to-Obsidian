@@ -2,6 +2,26 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.1.0] - 2026-02-05
+
+### Changed
+- **TypeScript Refactor**: Migrated entire codebase to TypeScript for improved type safety and maintainability
+  - Split monolithic `main.js` into modular TypeScript files:
+    - `src/main.ts`: Main plugin class with sync logic
+    - `src/settings.ts`: Settings tab UI
+    - `src/types.ts`: TypeScript interfaces for all data structures
+    - `src/constants.ts`: API constants and default settings
+    - `src/utils.ts`: Utility functions (date formatting, ProseMirror conversion, etc.)
+  - Added esbuild bundler for optimized production builds
+  - Strict type checking enabled for better code quality
+  - No functional changes - all existing features work identically
+
+### Technical
+- Added `package.json` with npm build scripts (`npm run build`, `npm run dev`)
+- Added `tsconfig.json` with strict TypeScript configuration
+- Added `esbuild.config.mjs` for bundling
+- Bundled output: ~36KB minified (same functionality, cleaner codebase)
+
 ## [2.0.2] - 2026-02-04
 
 ### Fixed
