@@ -9,3 +9,7 @@ node_modules/
 
 # Build artifacts
 *.map
+dist/
+
+# Package lock
+package-lock.json

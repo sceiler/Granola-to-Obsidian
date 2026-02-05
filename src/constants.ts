@@ -1,0 +1,61 @@
+import { Platform } from 'obsidian';
+import type { GranolaSyncSettings } from './types';
+
+export const API_BATCH_SIZE = 100;
+export const MAX_DOCUMENT_LIMIT = 1000;
+export const MIN_DOCUMENT_LIMIT = 1;
+
+export const GRANOLA_API_BASE = 'https://api.granola.ai';
+export const GRANOLA_API_VERSION = '5.354.0';
+
+export function getDefaultAuthPath(): string {
+	if (Platform.isWin) {
+		return 'AppData/Roaming/Granola/supabase.json';
+	} else if (Platform.isLinux) {
+		return '.config/Granola/supabase.json';
+	} else {
+		return 'Library/Application Support/Granola/supabase.json';
+	}
+}
+
+export const DEFAULT_SETTINGS: GranolaSyncSettings = {
+	syncDirectory: 'Notes',
+	authKeyPath: getDefaultAuthPath(),
+	filenameTemplate: '{created_date}_{title}',
+	dateFormat: 'YYYY-MM-DD',
+	autoSyncFrequency: 300000,
+	skipExistingNotes: true,
+	existingFileAction: 'timestamp',
+	filenameSeparator: ' ',
+	slashReplacement: '&',
+	documentSyncLimit: 100,
+	includeFullTranscript: false,
+	includeMyNotes: true,
+	includeEnhancedNotes: true,
+	includeGranolaUrl: true,
+	includeEmails: true,
+	attendeeFilter: 'all',
+	excludeMyNameFromPeople: true,
+	autoDetectMyName: true,
+	myName: '',
+	enableLocationDetection: true,
+	downloadAttachments: true,
+	enableCustomFrontmatter: true,
+	customCategory: '[[Meetings]]',
+	customTags: 'meetings',
+	enableDailyNoteIntegration: true,
+	dailyNoteSectionName: '## Granola Meetings',
+};
+
+export const IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp'];
+
+export const CONTENT_TYPE_TO_EXTENSION: Record<string, string> = {
+	'image': 'png',
+	'image/png': 'png',
+	'image/jpeg': 'jpg',
+	'image/jpg': 'jpg',
+	'image/gif': 'gif',
+	'image/webp': 'webp',
+	'image/svg+xml': 'svg',
+	'application/pdf': 'pdf',
+};

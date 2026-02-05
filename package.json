@@ -1,0 +1,32 @@
+{
+	"name": "granola-sync",
+	"version": "2.0.2",
+	"description": "Sync your Granola AI notes to your Obsidian vault",
+	"main": "main.js",
+	"scripts": {
+		"dev": "node esbuild.config.mjs",
+		"build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
+		"version": "node version-bump.mjs && git add manifest.json versions.json"
+	},
+	"keywords": [
+		"obsidian",
+		"granola",
+		"meeting-notes",
+		"sync"
+	],
+	"author": "Yi Min Yang",
+	"license": "MIT",
+	"devDependencies": {
+		"@types/node": "^22.15.21",
+		"@typescript-eslint/eslint-plugin": "^8.32.1",
+		"@typescript-eslint/parser": "^8.32.1",
+		"builtin-modules": "^4.0.0",
+		"esbuild": "^0.25.5",
+		"eslint": "^9.27.0",
+		"obsidian": "latest",
+		"typescript": "^5.8.3"
+	},
+	"dependencies": {
+		"tslib": "^2.8.1"
+	}
+}
