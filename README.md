@@ -344,6 +344,23 @@ curl -s --compressed "https://api.granola.ai/v1/get-document-transcript" \
 
 This plugin is written in TypeScript and uses esbuild for bundling.
 
+### Why TypeScript?
+
+| Benefit | Description |
+|---------|-------------|
+| Type safety | Catch errors at build time instead of runtime in Obsidian |
+| IDE support | Autocompletion for Granola API responses, settings, and Obsidian APIs |
+| Maintainability | Modular codebase with single-responsibility files |
+| Smaller bundle | Minified output is 48% smaller than the original JavaScript |
+
+### Bundle Size
+
+| Version | Size | Lines |
+|---------|------|-------|
+| Before (raw JS) | 67 KB | 2,181 |
+| After (minified) | 35 KB | 82 |
+| Source (TypeScript) | - | 2,317 |
+
 ### Project Structure
 
 ```
