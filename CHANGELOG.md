@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.2.1] - 2026-02-05
+
+### Fixed
+- **Teams meeting detection**: Now correctly detects Microsoft Teams meetings by checking the calendar event description field (where Teams URLs are typically embedded), not just the location field
+- **Company extraction from email domains**: When Granola's enrichment data is missing company information, the plugin now extracts company names from attendee email domains as a fallback (e.g., `user@acme.com` → "Acme")
+  - Personal email domains (Gmail, Outlook, Yahoo, etc.) are automatically excluded
+  - Handles two-part TLDs like `.co.uk`
+
+### Technical
+- Added `description` and `hangoutLink` fields to calendar event type
+- Added `extractCompanyFromEmail()` utility function with comprehensive personal email domain filtering
+
 ## [2.2.0] - 2026-02-05
 
 ### Added

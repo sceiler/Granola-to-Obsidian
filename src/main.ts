@@ -43,6 +43,7 @@ import {
 	transcriptToMarkdown,
 	getAttachmentExtension,
 	extractNameFromEmail,
+	extractCompanyFromEmail,
 } from './utils';
 
 import { GranolaSyncSettingTab } from './settings';
@@ -433,16 +434,26 @@ export default class GranolaSyncPlugin extends Plugin {
 						continue;
 					}
 
+					// Try enrichment data first
 					if (attendee.details?.company?.name) {
 						const companyName = attendee.details.company.name.trim();
 						if (companyName) {
 							companies.add(companyName);
+							continue;
+						}
+					}
+
+					// Fallback: extract company from email domain
+					if (email) {
+						const companyFromEmail = extractCompanyFromEmail(email);
+						if (companyFromEmail) {
+							companies.add(companyFromEmail);
 						}
 					}
 				}
 			}
 
-			// Also check creator's company
+			// Also check creator's company (no email fallback for creator - they're usually "you")
 			if (people && 'creator' in people && people.creator) {
 				const creator = people.creator;
 				if (creator.details?.company?.name) {
@@ -471,6 +482,8 @@ export default class GranolaSyncPlugin extends Plugin {
 			}
 
 			const location = (calendarEvent.location || '').toLowerCase();
+			const description = (calendarEvent.description || '').toLowerCase();
+			const hangoutLink = (calendarEvent.hangoutLink || '').toLowerCase();
 
 			let conferenceUrls: string[] = [];
 			if (calendarEvent.conferenceData?.entryPoints) {
@@ -479,15 +492,15 @@ export default class GranolaSyncPlugin extends Plugin {
 					.map(ep => ep.uri!.toLowerCase());
 			}
 
-			const allUrls = [location, ...conferenceUrls].join(' ');
+			const allText = [location, description, hangoutLink, ...conferenceUrls].join(' ');
 
-			if (allUrls.includes('zoom.us') || allUrls.includes('zoom.com')) {
+			if (allText.includes('zoom.us') || allText.includes('zoom.com')) {
 				return '[[Zoom]]';
 			}
-			if (allUrls.includes('meet.google.com') || allUrls.includes('hangouts.google.com')) {
+			if (allText.includes('meet.google.com') || allText.includes('hangouts.google.com')) {
 				return '[[Google Meet]]';
 			}
-			if (allUrls.includes('teams.microsoft.com') || allUrls.includes('teams.live.com')) {
+			if (allText.includes('teams.microsoft.com') || allText.includes('teams.live.com')) {
 				return '[[Teams]]';
 			}
 

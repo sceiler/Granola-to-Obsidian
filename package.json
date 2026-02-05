@@ -1,6 +1,6 @@
 {
 	"name": "granola-sync",
-	"version": "2.2.0",
+	"version": "2.2.1",
 	"description": "Sync your Granola AI notes to your Obsidian vault",
 	"main": "main.js",
 	"scripts": {

@@ -65,6 +65,7 @@ export interface GranolaCalendarAttendee {
 export interface GranolaCalendarEvent {
 	id: string;
 	summary?: string;
+	description?: string;
 	start?: {
 		dateTime?: string;
 		timeZone?: string;
@@ -75,6 +76,7 @@ export interface GranolaCalendarEvent {
 	};
 	attendees?: GranolaCalendarAttendee[];
 	location?: string;
+	hangoutLink?: string;
 	conferenceData?: {
 		entryPoints?: Array<{
 			uri?: string;

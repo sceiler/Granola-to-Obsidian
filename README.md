@@ -11,8 +11,8 @@ An Obsidian plugin that automatically syncs your [Granola AI](https://granola.ai
 - **Automatic & Manual Sync**: Sync on demand or set auto-sync intervals (1 min to 24 hours)
 - **Configurable Frontmatter**: Customize category, tags, and choose which fields to include
 - **People as Wiki Links**: Attendees appear as `[[John Smith]]` for easy linking
-- **Company Wiki Links**: Organizations extracted from attendees as `[[Company Name]]` in `org` field
-- **Meeting Platform Detection**: Automatically detects Zoom, Google Meet, or Teams and adds `[[Zoom]]`, `[[Google Meet]]`, or `[[Teams]]` to the `loc` field
+- **Company Wiki Links**: Organizations extracted from attendee enrichment data or email domains (e.g., `user@acme.com` → `[[Acme]]`) in `org` field
+- **Meeting Platform Detection**: Automatically detects Zoom, Google Meet, or Teams from calendar location, description, or conference data and adds `[[Zoom]]`, `[[Google Meet]]`, or `[[Teams]]` to the `loc` field
 - **Auto-Detect Your Name**: Automatically identifies you from calendar attendees (no manual configuration needed)
 - **Attachment Downloads**: Downloads meeting screenshots and files, embeds them in notes
 - **Calendar-Based Dates**: `date`/`dateEnd` from scheduled calendar times, `noteStarted`/`noteEnded` from actual Granola timestamps
@@ -172,8 +172,8 @@ This fork is streamlined for a specific workflow with enhanced metadata extracti
 
 | Feature | Description |
 |---------|-------------|
-| Company wiki links | `org` field populated with `[[Company Name]]` from attendee enrichment data |
-| Meeting platform detection | `loc` field auto-populated with `[[Zoom]]`, `[[Google Meet]]`, or `[[Teams]]` |
+| Company wiki links | `org` field populated with `[[Company Name]]` from enrichment data or email domain fallback |
+| Meeting platform detection | `loc` field auto-populated with `[[Zoom]]`, `[[Google Meet]]`, or `[[Teams]]` from location, description, or conference data |
 | Auto-detect user | Automatically identifies your name from calendar attendees (no manual config needed) |
 | Attachment downloads | Downloads screenshots and files, embeds them in notes |
 | Calendar-based dates | `date`/`dateEnd` from scheduled times, `noteStarted`/`noteEnded` from Granola timestamps |

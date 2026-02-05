@@ -351,3 +351,65 @@ export function extractNameFromEmail(email: string): string {
 		.map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
 		.join(' ');
 }
+
+/**
+ * Personal email domains to exclude from company extraction
+ */
+const PERSONAL_EMAIL_DOMAINS = new Set([
+	'gmail.com', 'googlemail.com',
+	'outlook.com', 'hotmail.com', 'live.com', 'msn.com',
+	'yahoo.com', 'yahoo.co.uk', 'yahoo.de', 'yahoo.fr',
+	'icloud.com', 'me.com', 'mac.com',
+	'aol.com',
+	'protonmail.com', 'proton.me',
+	'zoho.com',
+	'mail.com',
+	'gmx.com', 'gmx.de', 'gmx.net',
+	'web.de',
+	't-online.de',
+	'posteo.de',
+	'fastmail.com',
+	'tutanota.com', 'tutamail.com',
+]);
+
+/**
+ * Extract company name from email domain
+ * Returns null for personal email domains
+ */
+export function extractCompanyFromEmail(email: string): string | null {
+	if (!email || !email.includes('@')) return null;
+
+	const domain = email.split('@')[1]?.toLowerCase();
+	if (!domain) return null;
+
+	// Skip personal email domains
+	if (PERSONAL_EMAIL_DOMAINS.has(domain)) return null;
+
+	// Get the company part (remove TLD)
+	// e.g., actumdigital.com → actumdigital
+	// e.g., vercel.com → vercel
+	// e.g., company.co.uk → company
+	const parts = domain.split('.');
+	if (parts.length < 2) return null;
+
+	// Handle common two-part TLDs like co.uk, com.au
+	let companyPart: string;
+	if (parts.length >= 3 && ['co', 'com', 'org', 'net', 'ac'].includes(parts[parts.length - 2])) {
+		companyPart = parts.slice(0, -2).join('.');
+	} else {
+		companyPart = parts.slice(0, -1).join('.');
+	}
+
+	if (!companyPart) return null;
+
+	// Convert to title case and handle common patterns
+	// e.g., "actumdigital" → "Actumdigital"
+	// e.g., "my-company" → "My Company"
+	const formatted = companyPart
+		.replace(/[-_]/g, ' ')
+		.split(' ')
+		.map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+		.join(' ');
+
+	return formatted || null;
+}
