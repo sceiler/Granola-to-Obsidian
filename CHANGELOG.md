@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.3.0] - 2026-02-05
+
+### Changed
+- **Node.js 24**: Now requires Node.js 24+ for development
+- **Updated dependencies**: All dependencies updated to latest versions
+  - `@types/node`: 22.15.21 → 25.2.1
+  - `@typescript-eslint/eslint-plugin`: 8.32.1 → 8.54.0
+  - `@typescript-eslint/parser`: 8.32.1 → 8.54.0
+  - `builtin-modules`: 4.0.0 → 5.0.0
+  - `esbuild`: 0.25.5 → 0.27.2
+  - `eslint`: 9.27.0 → 9.39.2
+  - `typescript`: 5.8.3 → 5.9.3
+
 ## [2.2.1] - 2026-02-05
 
 ### Fixed

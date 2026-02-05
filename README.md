@@ -398,6 +398,11 @@ src/
 └── utils.ts       # Utility functions
 ```
 
+### Requirements
+
+- Node.js 24+
+- npm
+
 ### Building
 
 ```bash
