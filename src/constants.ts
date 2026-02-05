@@ -1,5 +1,5 @@
 import { Platform } from 'obsidian';
-import type { GranolaSyncSettings } from './types';
+import type { GranolaSyncSettings, FrontmatterFieldConfig } from './types';
 
 export const API_BATCH_SIZE = 100;
 export const MAX_DOCUMENT_LIMIT = 1000;
@@ -17,6 +17,26 @@ export function getDefaultAuthPath(): string {
 		return 'Library/Application Support/Granola/supabase.json';
 	}
 }
+
+export const REQUIRED_FRONTMATTER_FIELDS = ['granola_id', 'noteEnded'];
+
+export const DEFAULT_FRONTMATTER_FIELDS: FrontmatterFieldConfig[] = [
+	{ key: 'category', enabled: true },
+	{ key: 'type', enabled: true },
+	{ key: 'date', enabled: true },
+	{ key: 'dateEnd', enabled: true },
+	{ key: 'noteStarted', enabled: true },
+	{ key: 'noteEnded', enabled: true },
+	{ key: 'org', enabled: true },
+	{ key: 'loc', enabled: true },
+	{ key: 'people', enabled: true },
+	{ key: 'topics', enabled: true },
+	{ key: 'tags', enabled: true },
+	{ key: 'emails', enabled: true },
+	{ key: 'granola_id', enabled: true },
+	{ key: 'title', enabled: true },
+	{ key: 'granola_url', enabled: true },
+];
 
 export const DEFAULT_SETTINGS: GranolaSyncSettings = {
 	syncDirectory: 'Notes',
@@ -45,6 +65,7 @@ export const DEFAULT_SETTINGS: GranolaSyncSettings = {
 	customTags: 'meetings',
 	enableDailyNoteIntegration: true,
 	dailyNoteSectionName: '## Granola Meetings',
+	frontmatterFields: DEFAULT_FRONTMATTER_FIELDS,
 };
 
 export const IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp'];

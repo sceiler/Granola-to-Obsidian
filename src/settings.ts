@@ -1,6 +1,24 @@
 import { App, PluginSettingTab, Setting } from 'obsidian';
 import type GranolaSyncPlugin from './main';
-import { getDefaultAuthPath, MIN_DOCUMENT_LIMIT, MAX_DOCUMENT_LIMIT } from './constants';
+import { getDefaultAuthPath, MIN_DOCUMENT_LIMIT, MAX_DOCUMENT_LIMIT, REQUIRED_FRONTMATTER_FIELDS } from './constants';
+
+const FIELD_LABELS: Record<string, string> = {
+	'category': 'Category',
+	'type': 'Type (empty)',
+	'date': 'Date',
+	'dateEnd': 'Date end',
+	'noteStarted': 'Note started',
+	'noteEnded': 'Note ended',
+	'org': 'Organization',
+	'loc': 'Location',
+	'people': 'People',
+	'topics': 'Topics (empty)',
+	'tags': 'Tags',
+	'emails': 'Emails',
+	'granola_id': 'Granola ID',
+	'title': 'Title',
+	'granola_url': 'Granola URL',
+};
 
 export class GranolaSyncSettingTab extends PluginSettingTab {
 	plugin: GranolaSyncPlugin;
@@ -363,6 +381,70 @@ export class GranolaSyncSettingTab extends PluginSettingTab {
 						await this.plugin.saveSettings();
 					});
 				});
+		}
+
+		// Frontmatter field order
+		containerEl.createEl('h3', { text: 'Frontmatter field order' });
+
+		const fieldOrderDesc = containerEl.createEl('p', {
+			text: 'Enable/disable fields and reorder them. Required fields cannot be disabled.',
+			cls: 'setting-item-description'
+		});
+		fieldOrderDesc.style.marginBottom = '10px';
+
+		const fieldListContainer = containerEl.createDiv({ cls: 'granola-field-order-list' });
+
+		for (let i = 0; i < this.plugin.settings.frontmatterFields.length; i++) {
+			const field = this.plugin.settings.frontmatterFields[i];
+			const isRequired = REQUIRED_FRONTMATTER_FIELDS.includes(field.key);
+			const isFirst = i === 0;
+			const isLast = i === this.plugin.settings.frontmatterFields.length - 1;
+
+			const fieldSetting = new Setting(fieldListContainer)
+				.setName(FIELD_LABELS[field.key] || field.key)
+				.setDesc(isRequired ? 'Required' : '');
+
+			// Toggle for enable/disable
+			fieldSetting.addToggle(toggle => {
+				toggle.setValue(field.enabled);
+				toggle.setDisabled(isRequired);
+				toggle.onChange(async (value) => {
+					this.plugin.settings.frontmatterFields[i].enabled = value;
+					await this.plugin.saveSettings();
+				});
+			});
+
+			// Up button
+			fieldSetting.addButton(button => {
+				button.setIcon('arrow-up');
+				button.setTooltip('Move up');
+				button.setDisabled(isFirst);
+				button.onClick(async () => {
+					if (i > 0) {
+						const temp = this.plugin.settings.frontmatterFields[i - 1];
+						this.plugin.settings.frontmatterFields[i - 1] = this.plugin.settings.frontmatterFields[i];
+						this.plugin.settings.frontmatterFields[i] = temp;
+						await this.plugin.saveSettings();
+						this.display();
+					}
+				});
+			});
+
+			// Down button
+			fieldSetting.addButton(button => {
+				button.setIcon('arrow-down');
+				button.setTooltip('Move down');
+				button.setDisabled(isLast);
+				button.onClick(async () => {
+					if (i < this.plugin.settings.frontmatterFields.length - 1) {
+						const temp = this.plugin.settings.frontmatterFields[i + 1];
+						this.plugin.settings.frontmatterFields[i + 1] = this.plugin.settings.frontmatterFields[i];
+						this.plugin.settings.frontmatterFields[i] = temp;
+						await this.plugin.saveSettings();
+						this.display();
+					}
+				});
+			});
 		}
 
 		// Daily note integration

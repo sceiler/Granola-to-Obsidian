@@ -132,6 +132,11 @@ export interface TranscriptSegment {
 export type AttendeeFilter = 'all' | 'accepted' | 'accepted_tentative' | 'exclude_declined';
 export type ExistingFileAction = 'timestamp' | 'skip';
 
+export interface FrontmatterFieldConfig {
+	key: string;
+	enabled: boolean;
+}
+
 export interface GranolaSyncSettings {
 	syncDirectory: string;
 	authKeyPath: string;
@@ -159,6 +164,7 @@ export interface GranolaSyncSettings {
 	customTags: string;
 	enableDailyNoteIntegration: boolean;
 	dailyNoteSectionName: string;
+	frontmatterFields: FrontmatterFieldConfig[];
 }
 
 // Internal Types

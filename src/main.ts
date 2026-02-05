@@ -24,6 +24,8 @@ import type {
 
 import {
 	DEFAULT_SETTINGS,
+	DEFAULT_FRONTMATTER_FIELDS,
+	REQUIRED_FRONTMATTER_FIELDS,
 	API_BATCH_SIZE,
 	GRANOLA_API_BASE,
 	GRANOLA_API_VERSION,
@@ -91,6 +93,11 @@ export default class GranolaSyncPlugin extends Plugin {
 	async loadSettings(): Promise<void> {
 		const data = await this.loadData();
 		this.settings = Object.assign({}, DEFAULT_SETTINGS, data);
+
+		// Migration: initialize frontmatter fields if not present
+		if (!this.settings.frontmatterFields || this.settings.frontmatterFields.length === 0) {
+			this.settings.frontmatterFields = DEFAULT_FRONTMATTER_FIELDS.map(f => ({ ...f }));
+		}
 	}
 
 	async saveSettings(): Promise<void> {
@@ -947,6 +954,14 @@ export default class GranolaSyncPlugin extends Plugin {
 		return sections.join('\n');
 	}
 
+	private isFieldEnabled(fieldKey: string): boolean {
+		const field = this.settings.frontmatterFields.find(f => f.key === fieldKey);
+		if (!field) return false;
+		// Required fields are always enabled
+		if (REQUIRED_FRONTMATTER_FIELDS.includes(fieldKey)) return true;
+		return field.enabled;
+	}
+
 	private buildFrontmatter(doc: GranolaDocument, attachmentFilenames: string[] = []): string {
 		const title = doc.title || 'Untitled Granola Note';
 		const docId = doc.id || 'unknown_id';
@@ -961,100 +976,102 @@ export default class GranolaSyncPlugin extends Plugin {
 		const scheduledStart = calendarEvent?.start?.dateTime;
 		const scheduledEnd = calendarEvent?.end?.dateTime;
 
-		let frontmatter = '---\n';
-
-		if (this.settings.enableCustomFrontmatter) {
-			if (this.settings.customCategory) {
-				frontmatter += 'category:\n  - ' + escapeYamlValue(this.settings.customCategory) + '\n';
-			}
-			frontmatter += 'type:\n';
-
-			if (scheduledStart) {
-				frontmatter += 'date: ' + formatDateTimeProperty(scheduledStart) + '\n';
-			} else if (doc.created_at) {
-				frontmatter += 'date: ' + formatDateTimeProperty(doc.created_at) + '\n';
-			} else {
-				frontmatter += 'date:\n';
-			}
-
-			if (scheduledEnd) {
-				frontmatter += 'dateEnd: ' + formatDateTimeProperty(scheduledEnd) + '\n';
-			} else {
-				frontmatter += 'dateEnd:\n';
-			}
-
-			if (doc.created_at) {
-				frontmatter += 'noteStarted: ' + formatDateTimeProperty(doc.created_at) + '\n';
-			} else {
-				frontmatter += 'noteStarted:\n';
-			}
-
-			if (doc.updated_at) {
-				frontmatter += 'noteEnded: ' + formatDateTimeProperty(doc.updated_at) + '\n';
-			} else {
-				frontmatter += 'noteEnded:\n';
-			}
-
-			frontmatter += 'org:\n';
-			if (companyNames.length > 0) {
-				for (const company of companyNames) {
-					frontmatter += '  - ' + escapeYamlValue('[[' + company + ']]') + '\n';
+		// Field generators - each returns the YAML string for that field or null to skip
+		const fieldGenerators: Record<string, () => string | null> = {
+			'category': () => {
+				if (!this.settings.customCategory) return null;
+				return 'category:\n  - ' + escapeYamlValue(this.settings.customCategory) + '\n';
+			},
+			'type': () => 'type:\n',
+			'date': () => {
+				if (scheduledStart) {
+					return 'date: ' + formatDateTimeProperty(scheduledStart) + '\n';
+				} else if (doc.created_at) {
+					return 'date: ' + formatDateTimeProperty(doc.created_at) + '\n';
 				}
-			}
-
-			if (meetingPlatform) {
-				frontmatter += 'loc:\n  - ' + escapeYamlValue(meetingPlatform) + '\n';
-			} else {
-				frontmatter += 'loc:\n';
-			}
-
-			frontmatter += 'people:\n';
-			if (peopleLinks.length > 0) {
-				for (const link of peopleLinks) {
-					frontmatter += '  - ' + escapeYamlValue(link) + '\n';
+				return 'date:\n';
+			},
+			'dateEnd': () => {
+				if (scheduledEnd) {
+					return 'dateEnd: ' + formatDateTimeProperty(scheduledEnd) + '\n';
 				}
-			}
-
-			frontmatter += 'topics:\n';
-
-			if (this.settings.customTags) {
-				frontmatter += 'tags:\n';
+				return 'dateEnd:\n';
+			},
+			'noteStarted': () => {
+				if (doc.created_at) {
+					return 'noteStarted: ' + formatDateTimeProperty(doc.created_at) + '\n';
+				}
+				return 'noteStarted:\n';
+			},
+			'noteEnded': () => {
+				if (doc.updated_at) {
+					return 'noteEnded: ' + formatDateTimeProperty(doc.updated_at) + '\n';
+				}
+				return 'noteEnded:\n';
+			},
+			'org': () => {
+				let result = 'org:\n';
+				if (companyNames.length > 0) {
+					for (const company of companyNames) {
+						result += '  - ' + escapeYamlValue('[[' + company + ']]') + '\n';
+					}
+				}
+				return result;
+			},
+			'loc': () => {
+				if (meetingPlatform) {
+					return 'loc:\n  - ' + escapeYamlValue(meetingPlatform) + '\n';
+				}
+				return 'loc:\n';
+			},
+			'people': () => {
+				let result = 'people:\n';
+				if (peopleLinks.length > 0) {
+					for (const link of peopleLinks) {
+						result += '  - ' + escapeYamlValue(link) + '\n';
+					}
+				}
+				return result;
+			},
+			'topics': () => 'topics:\n',
+			'tags': () => {
+				if (!this.settings.customTags) return null;
+				let result = 'tags:\n';
 				const tags = this.settings.customTags.split(',').map(t => t.trim()).filter(t => t);
 				for (const tag of tags) {
-					frontmatter += '  - ' + escapeYamlValue(tag) + '\n';
+					result += '  - ' + escapeYamlValue(tag) + '\n';
+				}
+				return result;
+			},
+			'emails': () => {
+				if (!this.settings.includeEmails || attendeeEmails.length === 0) return null;
+				let result = 'emails:\n';
+				for (const email of attendeeEmails) {
+					result += '  - ' + escapeYamlValue(email) + '\n';
+				}
+				return result;
+			},
+			'granola_id': () => 'granola_id: ' + escapeYamlValue(docId) + '\n',
+			'title': () => 'title: ' + escapeYamlValue(title) + '\n',
+			'granola_url': () => {
+				if (!this.settings.includeGranolaUrl) return null;
+				return 'granola_url: https://notes.granola.ai/d/' + docId + '\n';
+			},
+		};
+
+		let frontmatter = '---\n';
+
+		// Iterate over fields in configured order
+		for (const field of this.settings.frontmatterFields) {
+			if (!this.isFieldEnabled(field.key)) continue;
+
+			const generator = fieldGenerators[field.key];
+			if (generator) {
+				const value = generator();
+				if (value !== null) {
+					frontmatter += value;
 				}
 			}
-		} else {
-			if (scheduledStart) {
-				frontmatter += 'date: ' + formatDateTimeProperty(scheduledStart) + '\n';
-			} else if (doc.created_at) {
-				frontmatter += 'date: ' + formatDateTimeProperty(doc.created_at) + '\n';
-			}
-
-			if (scheduledEnd) {
-				frontmatter += 'dateEnd: ' + formatDateTimeProperty(scheduledEnd) + '\n';
-			}
-
-			frontmatter += 'people:\n';
-			if (peopleLinks.length > 0) {
-				for (const link of peopleLinks) {
-					frontmatter += '  - ' + escapeYamlValue(link) + '\n';
-				}
-			}
-		}
-
-		if (this.settings.includeEmails && attendeeEmails.length > 0) {
-			frontmatter += 'emails:\n';
-			for (const email of attendeeEmails) {
-				frontmatter += '  - ' + escapeYamlValue(email) + '\n';
-			}
-		}
-
-		frontmatter += 'granola_id: ' + escapeYamlValue(docId) + '\n';
-		frontmatter += 'title: ' + escapeYamlValue(title) + '\n';
-
-		if (this.settings.includeGranolaUrl) {
-			frontmatter += 'granola_url: https://notes.granola.ai/d/' + docId + '\n';
 		}
 
 		frontmatter += '---\n';

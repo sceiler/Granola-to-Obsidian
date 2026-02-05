@@ -123,6 +123,32 @@ This handles the race condition where a note is synced before Granola finishes g
 | Category | Default category value (e.g., `[[Meetings]]`) |
 | Tags | Default tags (comma-separated) |
 
+### Frontmatter Field Order
+
+Configure which fields appear in frontmatter and in what order. Access via **Settings → Frontmatter field order**.
+
+- **Toggle fields on/off** - Disable fields you don't need
+- **Reorder with up/down buttons** - Arrange fields in your preferred order
+- **Required fields** - `granola_id` and `noteEnded` cannot be disabled (needed for sync)
+
+| Field | Description |
+|-------|-------------|
+| `category` | Custom category (e.g., `[[Meetings]]`) |
+| `type` | Empty placeholder for manual entry |
+| `date` | Scheduled meeting start time |
+| `dateEnd` | Scheduled meeting end time |
+| `noteStarted` | When Granola note-taking started |
+| `noteEnded` | Last note update (required) |
+| `org` | Company names as wiki links |
+| `loc` | Meeting platform (Zoom/Google Meet/Teams) |
+| `people` | Attendee names as wiki links |
+| `topics` | Empty placeholder for manual entry |
+| `tags` | Custom tags |
+| `emails` | Attendee email addresses |
+| `granola_id` | Unique document ID (required) |
+| `title` | Meeting title |
+| `granola_url` | Link to original Granola note |
+
 ### Attachments
 
 | Setting | Description |

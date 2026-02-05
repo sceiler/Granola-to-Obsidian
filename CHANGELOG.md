@@ -2,6 +2,34 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.2.0] - 2026-02-05
+
+### Added
+- **Configurable Frontmatter Fields**: Full control over frontmatter structure
+  - Enable/disable individual fields (15 fields available)
+  - Reorder fields using up/down buttons in settings
+  - Required fields (`granola_id`, `noteEnded`) cannot be disabled
+  - New "Frontmatter field order" section in settings UI
+
+### Available Fields
+| Field | Description |
+|-------|-------------|
+| `category` | Custom category (e.g., `[[Meetings]]`) |
+| `type` | Empty placeholder for manual entry |
+| `date` | Scheduled meeting start time |
+| `dateEnd` | Scheduled meeting end time |
+| `noteStarted` | When Granola note-taking started |
+| `noteEnded` | Last note update (required for sync detection) |
+| `org` | Company names as wiki links |
+| `loc` | Meeting platform (Zoom/Google Meet/Teams) |
+| `people` | Attendee names as wiki links |
+| `topics` | Empty placeholder for manual entry |
+| `tags` | Custom tags |
+| `emails` | Attendee email addresses |
+| `granola_id` | Unique document ID (required for deduplication) |
+| `title` | Meeting title |
+| `granola_url` | Link to original Granola note |
+
 ## [2.1.0] - 2026-02-05
 
 ### Changed

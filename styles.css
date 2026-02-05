@@ -57,3 +57,21 @@
         opacity: 1;
     }
 }
+
+/* Frontmatter Field Order List */
+.granola-field-order-list .setting-item {
+    border-bottom: 1px solid var(--background-modifier-border);
+    padding: 8px 0;
+}
+
+.granola-field-order-list .setting-item:last-child {
+    border-bottom: none;
+}
+
+.granola-field-order-list .setting-item-control {
+    gap: 4px;
+}
+
+.granola-field-order-list .setting-item-control button {
+    padding: 4px 8px;
+}
