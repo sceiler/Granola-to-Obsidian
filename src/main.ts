@@ -494,6 +494,15 @@ export default class GranolaSyncPlugin extends Plugin {
 
 			const allText = [location, description, hangoutLink, ...conferenceUrls].join(' ');
 
+			// Check custom platform mappings first (e.g. gong.io → Zoom)
+			if (this.settings.platformMappings?.length > 0) {
+				for (const mapping of this.settings.platformMappings) {
+					if (mapping.urlPattern && mapping.platform && allText.includes(mapping.urlPattern.toLowerCase())) {
+						return '[[' + mapping.platform + ']]';
+					}
+				}
+			}
+
 			if (allText.includes('zoom.us') || allText.includes('zoom.com')) {
 				return '[[Zoom]]';
 			}

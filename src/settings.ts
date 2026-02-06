@@ -308,8 +308,62 @@ export class GranolaSyncSettingTab extends PluginSettingTab {
 				toggle.onChange(async (value) => {
 					this.plugin.settings.enableLocationDetection = value;
 					await this.plugin.saveSettings();
+					this.display();
 				});
 			});
+
+		if (this.plugin.settings.enableLocationDetection) {
+			const mappings = this.plugin.settings.platformMappings || [];
+
+			const mappingDesc = containerEl.createEl('div', { cls: 'setting-item-description' });
+			mappingDesc.style.marginTop = '-10px';
+			mappingDesc.style.marginBottom = '10px';
+			mappingDesc.textContent = 'Map proxy URLs (e.g. Gong) to the actual meeting platform. Built-in: Zoom, Google Meet, Teams.';
+
+			for (let i = 0; i < mappings.length; i++) {
+				const mapping = mappings[i];
+				new Setting(containerEl)
+					.setName('URL contains \u2192 Platform')
+					.addText(text => {
+						text.setPlaceholder('gong.io');
+						text.setValue(mapping.urlPattern);
+						text.onChange(async (value) => {
+							this.plugin.settings.platformMappings[i].urlPattern = value;
+							await this.plugin.saveSettings();
+						});
+					})
+					.addText(text => {
+						text.setPlaceholder('Zoom');
+						text.setValue(mapping.platform);
+						text.onChange(async (value) => {
+							this.plugin.settings.platformMappings[i].platform = value;
+							await this.plugin.saveSettings();
+						});
+					})
+					.addExtraButton(button => {
+						button.setIcon('trash');
+						button.setTooltip('Remove mapping');
+						button.onClick(async () => {
+							this.plugin.settings.platformMappings.splice(i, 1);
+							await this.plugin.saveSettings();
+							this.display();
+						});
+					});
+			}
+
+			new Setting(containerEl)
+				.addButton(button => {
+					button.setButtonText('Add platform mapping');
+					button.onClick(async () => {
+						if (!this.plugin.settings.platformMappings) {
+							this.plugin.settings.platformMappings = [];
+						}
+						this.plugin.settings.platformMappings.push({ urlPattern: '', platform: '' });
+						await this.plugin.saveSettings();
+						this.display();
+					});
+				});
+		}
 
 		// Attachments
 		containerEl.createEl('h3', { text: 'Attachments' });

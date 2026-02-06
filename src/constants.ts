@@ -59,6 +59,7 @@ export const DEFAULT_SETTINGS: GranolaSyncSettings = {
 	autoDetectMyName: true,
 	myName: '',
 	enableLocationDetection: true,
+	platformMappings: [],
 	downloadAttachments: true,
 	enableCustomFrontmatter: true,
 	customCategory: '[[Meetings]]',

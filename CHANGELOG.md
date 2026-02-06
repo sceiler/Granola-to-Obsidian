@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.4.0] - 2026-02-06
+
+### Added
+- **Custom Platform URL Mappings**: Configure proxy URLs (e.g. Gong) to map to the actual meeting platform. For example, map `gong.io` → `Zoom` so meetings using Gong as a proxy are correctly tagged with `[[Zoom]]` in the `loc` field. Add multiple mappings in Settings → Detect meeting platform.
+
 ## [2.3.0] - 2026-02-05
 
 ### Changed

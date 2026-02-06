@@ -12,7 +12,7 @@ An Obsidian plugin that automatically syncs your [Granola AI](https://granola.ai
 - **Configurable Frontmatter**: Customize category, tags, and choose which fields to include
 - **People as Wiki Links**: Attendees appear as `[[John Smith]]` for easy linking
 - **Company Wiki Links**: Organizations extracted from attendee enrichment data or email domains (e.g., `user@acme.com` → `[[Acme]]`) in `org` field
-- **Meeting Platform Detection**: Automatically detects Zoom, Google Meet, or Teams from calendar location, description, or conference data and adds `[[Zoom]]`, `[[Google Meet]]`, or `[[Teams]]` to the `loc` field
+- **Meeting Platform Detection**: Automatically detects Zoom, Google Meet, or Teams from calendar location, description, or conference data and adds `[[Zoom]]`, `[[Google Meet]]`, or `[[Teams]]` to the `loc` field. Supports custom URL-to-platform mappings for proxies like Gong.
 - **Auto-Detect Your Name**: Automatically identifies you from calendar attendees (no manual configuration needed)
 - **Attachment Downloads**: Downloads meeting screenshots and files, embeds them in notes
 - **Calendar-Based Dates**: `date`/`dateEnd` from scheduled calendar times, `noteStarted`/`noteEnded` from actual Granola timestamps
@@ -119,6 +119,7 @@ This handles the race condition where a note is synced before Granola finishes g
 | Auto-Detect My Name | Automatically detect your name from calendar (default: on) |
 | My Name (Override) | Manual override if auto-detection doesn't work |
 | Detect Meeting Platform | Auto-detect Zoom/Google Meet/Teams for `loc` field (default: on) |
+| Platform Mappings | Map proxy URLs (e.g. `gong.io`) to a platform name (e.g. `Zoom`). Useful when meetings use a proxy like Gong that forwards to Zoom. |
 | Enable Custom Frontmatter | Add category, type, org, loc, topics fields |
 | Category | Default category value (e.g., `[[Meetings]]`) |
 | Tags | Default tags (comma-separated) |
@@ -173,7 +174,7 @@ This fork is streamlined for a specific workflow with enhanced metadata extracti
 | Feature | Description |
 |---------|-------------|
 | Company wiki links | `org` field populated with `[[Company Name]]` from enrichment data or email domain fallback |
-| Meeting platform detection | `loc` field auto-populated with `[[Zoom]]`, `[[Google Meet]]`, or `[[Teams]]` from location, description, or conference data |
+| Meeting platform detection | `loc` field auto-populated with `[[Zoom]]`, `[[Google Meet]]`, or `[[Teams]]` from location, description, or conference data. Custom URL mappings for proxies (e.g. Gong → Zoom). |
 | Auto-detect user | Automatically identifies your name from calendar attendees (no manual config needed) |
 | Attachment downloads | Downloads screenshots and files, embeds them in notes |
 | Calendar-based dates | `date`/`dateEnd` from scheduled times, `noteStarted`/`noteEnded` from Granola timestamps |

@@ -139,6 +139,11 @@ export interface FrontmatterFieldConfig {
 	enabled: boolean;
 }
 
+export interface PlatformMapping {
+	urlPattern: string;
+	platform: string;
+}
+
 export interface GranolaSyncSettings {
 	syncDirectory: string;
 	authKeyPath: string;
@@ -160,6 +165,7 @@ export interface GranolaSyncSettings {
 	autoDetectMyName: boolean;
 	myName: string;
 	enableLocationDetection: boolean;
+	platformMappings: PlatformMapping[];
 	downloadAttachments: boolean;
 	enableCustomFrontmatter: boolean;
 	customCategory: string;
