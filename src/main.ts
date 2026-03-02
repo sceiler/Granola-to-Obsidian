@@ -384,6 +384,16 @@ export default class GranolaSyncPlugin extends Plugin {
 		return null;
 	}
 
+	private getLatestUpdatedAt(doc: GranolaDocument): string {
+		const candidates = [doc.updated_at];
+		if (doc.last_viewed_panel?.content_updated_at) {
+			candidates.push(doc.last_viewed_panel.content_updated_at);
+		} else if (doc.last_viewed_panel?.updated_at) {
+			candidates.push(doc.last_viewed_panel.updated_at);
+		}
+		return candidates.reduce((latest, ts) => ts > latest ? ts : latest);
+	}
+
 	private buildResponseStatusMap(doc: GranolaDocument): Map<string, string> {
 		const statusMap = new Map<string, string>();
 		if (doc.google_calendar_event?.attendees) {
@@ -1053,7 +1063,7 @@ export default class GranolaSyncPlugin extends Plugin {
 			},
 			'noteEnded': () => {
 				if (doc.updated_at) {
-					return 'noteEnded: ' + formatDateTimeProperty(doc.updated_at) + '\n';
+					return 'noteEnded: ' + formatDateTimeProperty(this.getLatestUpdatedAt(doc)) + '\n';
 				}
 				return 'noteEnded:\n';
 			},
@@ -1159,18 +1169,10 @@ export default class GranolaSyncPlugin extends Plugin {
 			const docId = doc.id || 'unknown_id';
 			const transcript = doc.transcript || 'no_transcript';
 
-			const myNotesContent = this.extractPanelContent(doc, 'my_notes');
 			const enhancedNotesContent = this.extractPanelContent(doc, 'enhanced_notes');
-
-			const myNotesMarkdown = myNotesContent ? convertProseMirrorToMarkdown(myNotesContent).trim() : '';
 			const enhancedNotesMarkdown = enhancedNotesContent ? convertProseMirrorToMarkdown(enhancedNotesContent).trim() : '';
 
-			const hasMyNotes = !!myNotesMarkdown && this.settings.includeMyNotes;
-			const hasEnhancedNotes = !!enhancedNotesMarkdown && this.settings.includeEnhancedNotes;
-			const hasTranscript = this.settings.includeFullTranscript && transcript && transcript !== 'no_transcript';
-			const hasAttachments = this.settings.downloadAttachments && doc.attachments && doc.attachments.length > 0;
-
-			if (!hasMyNotes && !hasEnhancedNotes && !hasTranscript && !hasAttachments) {
+			if (!enhancedNotesMarkdown) {
 				return false;
 			}
 
@@ -1182,7 +1184,7 @@ export default class GranolaSyncPlugin extends Plugin {
 				if (this.settings.skipExistingNotes) {
 					const cache = this.app.metadataCache.getFileCache(existingFile);
 					const storedNoteEnded = cache?.frontmatter?.noteEnded as string | undefined;
-					const apiUpdatedAt = formatDateTimeProperty(doc.updated_at);
+					const apiUpdatedAt = formatDateTimeProperty(this.getLatestUpdatedAt(doc));
 
 					if (storedNoteEnded && apiUpdatedAt && apiUpdatedAt > storedNoteEnded) {
 						const noteContent = this.buildNoteContent(doc, transcript, attachmentFilenames);

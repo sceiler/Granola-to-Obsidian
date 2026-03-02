@@ -108,6 +108,8 @@ export interface GranolaDocument {
 	last_viewed_panel?: {
 		type?: string;
 		content?: ProseMirrorNode;
+		updated_at?: string;
+		content_updated_at?: string;
 	};
 	google_calendar_event?: GranolaCalendarEvent;
 	people?: GranolaPeople | GranolaPerson[];
