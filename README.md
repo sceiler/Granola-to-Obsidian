@@ -4,7 +4,7 @@
 
 An Obsidian plugin that automatically syncs your [Granola AI](https://granola.ai) meeting notes to your Obsidian vault.
 
-**Key differences from original**: Wiki links for people/companies, calendar-based date fields, meeting platform detection, auto-detection of your name, attachment downloads, attendee filtering, smart German umlaut conversion. See [Differences from Original](#differences-from-original) for details.
+**Key differences from original**: Wiki links for people/companies, calendar-based date fields, meeting platform detection, auto-detection of your name, attachment downloads, attendee filtering, smart German umlaut conversion, Unicode diacritics preservation. See [Differences from Original](#differences-from-original) for details.
 
 ## Features
 
@@ -18,6 +18,7 @@ An Obsidian plugin that automatically syncs your [Granola AI](https://granola.ai
 - **Calendar-Based Dates**: `date`/`dateEnd` from scheduled calendar times, `noteStarted`/`noteEnded` from actual Granola timestamps
 - **Attendee Filtering**: Filter by calendar response status (accepted, tentative, declined, or include everyone)
 - **Smart German Umlaut Conversion**: Converts `ae` → `ä`, `oe` → `ö`, `ue` → `ü` while preserving names like Miguel, Michael, Joel
+- **Unicode Diacritics Preservation**: Prefers Google Calendar display names over enrichment data when diacritics are lost (e.g., enrichment returns "Hakkinen" but calendar has "Häkkinen" → uses `[[Häkkinen]]`)
 - **Daily Note Integration**: Automatically adds today's meetings to your daily note
 - **Smart Content Detection**: Only creates notes when Granola has finished processing (no empty notes)
 
@@ -180,6 +181,7 @@ This fork is streamlined for a specific workflow with enhanced metadata extracti
 | Calendar-based dates | `date`/`dateEnd` from scheduled times, `noteStarted`/`noteEnded` from Granola timestamps |
 | Attendee filtering | Filter by calendar response status (accepted, declined, tentative) |
 | Smart umlaut conversion | Preserves names like Miguel, Michael, Joel while converting German surnames |
+| Unicode diacritics preservation | Prefers calendar display names when enrichment data loses diacritics (e.g., "Häkkinen" → not "Hakkinen") |
 
 ### Changed Features
 

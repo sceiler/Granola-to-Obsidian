@@ -23,6 +23,7 @@ This fork is streamlined for a specific workflow:
 | Auto-detect user | Automatically identifies your name from calendar (no manual config needed) |
 | Attachment downloads | Downloads meeting screenshots/files and embeds them in notes |
 | German umlaut conversion | `ae` → `ä`, `oe` → `ö`, `ue` → `ü` (smart: preserves Miguel, Michael, Joel, etc.) |
+| Unicode diacritics preservation | Prefers calendar display names when enrichment data loses diacritics (e.g., "Häkkinen" not "Hakkinen") |
 | Calendar-based dates | `date`/`dateEnd` from Google Calendar, `noteStarted`/`noteEnded` from Granola timestamps |
 | Attendee filtering | Filter by calendar response status (accepted, tentative, declined) |
 | Email extraction | Attendee emails in frontmatter |

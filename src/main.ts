@@ -592,6 +592,18 @@ export default class GranolaSyncPlugin extends Plugin {
 		const processedEmails = new Set<string>();
 		const responseStatusMap = this.buildResponseStatusMap(doc);
 
+		// Build email → calendar displayName map for Unicode name resolution.
+		// People enrichment data often loses diacritics (e.g., Salimäki → Salimaki),
+		// but Google Calendar preserves the original Unicode displayName.
+		const calendarNameMap = new Map<string, string>();
+		if (doc.google_calendar_event?.attendees) {
+			for (const attendee of doc.google_calendar_event.attendees) {
+				if (attendee.email && attendee.displayName) {
+					calendarNameMap.set(attendee.email.toLowerCase(), attendee.displayName);
+				}
+			}
+		}
+
 		try {
 			const people = doc.people;
 
@@ -620,6 +632,20 @@ export default class GranolaSyncPlugin extends Plugin {
 						name = person.display_name;
 					} else if (person.name) {
 						name = person.name;
+					}
+
+					// Prefer calendar displayName when enrichment data lost diacritics
+					// e.g., people API returns "Salimaki" but calendar has "Salimäki"
+					if (name && email) {
+						const calendarName = calendarNameMap.get(email);
+						if (calendarName) {
+							const stripDiacritics = (s: string) =>
+								s.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+							if (stripDiacritics(calendarName).toLowerCase() === stripDiacritics(name).toLowerCase()
+								&& calendarName !== name) {
+								name = calendarName;
+							}
+						}
 					}
 
 					if (name && !attendees.includes(name)) {
