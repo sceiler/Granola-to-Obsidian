@@ -365,6 +365,60 @@ export class GranolaSyncSettingTab extends PluginSettingTab {
 				});
 		}
 
+		// Attendee name overrides
+		containerEl.createEl('h3', { text: 'Attendee name overrides' });
+
+		const overrides = this.plugin.settings.attendeeNameOverrides || [];
+
+		const overrideDesc = containerEl.createEl('div', { cls: 'setting-item-description' });
+		overrideDesc.style.marginTop = '-10px';
+		overrideDesc.style.marginBottom = '10px';
+		overrideDesc.textContent = 'Map an attendee’s email to a fixed display name. Wins over Granola’s enrichment and calendar display names. Useful for fixing diacritics or filling in missing last names.';
+
+		for (let i = 0; i < overrides.length; i++) {
+			const override = overrides[i];
+			new Setting(containerEl)
+				.setName('Email → Name')
+				.addText(text => {
+					text.setPlaceholder('name@example.com');
+					text.setValue(override.email);
+					text.onChange(async (value) => {
+						this.plugin.settings.attendeeNameOverrides[i].email = value;
+						await this.plugin.saveSettings();
+					});
+				})
+				.addText(text => {
+					text.setPlaceholder('Jane Doe');
+					text.setValue(override.name);
+					text.onChange(async (value) => {
+						this.plugin.settings.attendeeNameOverrides[i].name = value;
+						await this.plugin.saveSettings();
+					});
+				})
+				.addExtraButton(button => {
+					button.setIcon('trash');
+					button.setTooltip('Remove override');
+					button.onClick(async () => {
+						this.plugin.settings.attendeeNameOverrides.splice(i, 1);
+						await this.plugin.saveSettings();
+						this.display();
+					});
+				});
+		}
+
+		new Setting(containerEl)
+			.addButton(button => {
+				button.setButtonText('Add attendee override');
+				button.onClick(async () => {
+					if (!this.plugin.settings.attendeeNameOverrides) {
+						this.plugin.settings.attendeeNameOverrides = [];
+					}
+					this.plugin.settings.attendeeNameOverrides.push({ email: '', name: '' });
+					await this.plugin.saveSettings();
+					this.display();
+				});
+			});
+
 		// Attachments
 		containerEl.createEl('h3', { text: 'Attachments' });
 

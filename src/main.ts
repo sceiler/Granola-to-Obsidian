@@ -614,8 +614,44 @@ export default class GranolaSyncPlugin extends Plugin {
 			}
 		}
 
+		// User-defined email → name overrides win over every other resolution path.
+		const overrideMap = new Map<string, string>();
+		for (const o of this.settings.attendeeNameOverrides ?? []) {
+			const email = o.email?.trim().toLowerCase();
+			const name = o.name?.trim();
+			if (email && name) overrideMap.set(email, name);
+		}
+
 		try {
 			const people = doc.people;
+
+			if (overrideMap.size > 0) {
+				const overrideEmails = new Set<string>();
+				if (Array.isArray(people)) {
+					for (const p of people) if (p.email) overrideEmails.add(p.email.toLowerCase());
+				}
+				if (doc.google_calendar_event?.attendees) {
+					for (const a of doc.google_calendar_event.attendees) {
+						if (a.email) overrideEmails.add(a.email.toLowerCase());
+					}
+				}
+
+				for (const email of overrideEmails) {
+					const overrideName = overrideMap.get(email);
+					if (!overrideName) continue;
+
+					const responseStatus = responseStatusMap.get(email) ?? null;
+					if (!this.shouldIncludeAttendee(responseStatus)) {
+						processedEmails.add(email);
+						continue;
+					}
+
+					if (!attendees.includes(overrideName)) {
+						attendees.push(overrideName);
+					}
+					processedEmails.add(email);
+				}
+			}
 
 			// Handle people as array (legacy format)
 			if (Array.isArray(people)) {

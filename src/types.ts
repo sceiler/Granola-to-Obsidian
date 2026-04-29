@@ -146,6 +146,11 @@ export interface PlatformMapping {
 	platform: string;
 }
 
+export interface AttendeeNameOverride {
+	email: string;
+	name: string;
+}
+
 export interface GranolaSyncSettings {
 	syncDirectory: string;
 	authKeyPath: string;
@@ -168,6 +173,7 @@ export interface GranolaSyncSettings {
 	myName: string;
 	enableLocationDetection: boolean;
 	platformMappings: PlatformMapping[];
+	attendeeNameOverrides: AttendeeNameOverride[];
 	downloadAttachments: boolean;
 	enableCustomFrontmatter: boolean;
 	customCategory: string;
