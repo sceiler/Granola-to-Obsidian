@@ -2,6 +2,75 @@
 
 All notable changes to this project will be documented in this file.
 
+## [3.0.0] - 2026-05-11
+
+### ⚠️ Breaking change — switch to Granola's official public API
+
+The plugin now authenticates against `https://public-api.granola.ai/v1` using a user-supplied personal API key (`grn_…`) instead of reading the desktop app's local `supabase.json`. **You must paste an API key into plugin settings before the first sync.** Generate one at [docs.granola.ai → Personal API](https://docs.granola.ai/help-center/sharing/integrations/personal-api). Requires a Granola Business or Enterprise plan.
+
+#### Why
+
+Around May 2026, the Granola desktop app migrated credential storage to an encrypted blob keyed via the OS keychain. The plaintext `supabase.json` that earlier plugin versions read is no longer kept fresh — the token written there expires after ~6 hours and is never rotated, so every API call returned `401 Unauthorized`. Meanwhile, Granola shipped an official public API with stable, non-rotating keys. The community reverse-engineering effort that earlier plugin versions were based on was archived on 2026-02-05 because of this. The migration solves authentication permanently.
+
+### Added
+
+- **API key setting** under a new "Authentication" section. Password-input field with a link to the Granola docs.
+- **Incremental sync** via the API's `updated_after` query parameter. The plugin records the timestamp of each successful sync in plugin data (`lastSyncAt`) and only requests notes changed since then on subsequent runs.
+- **Auto-relink for legacy notes**: notes synced with v2.x have a UUID `granola_id`; the new API uses `not_*` slugs. The plugin extracts the UUID embedded in the API's `web_url` and matches it against your existing notes, rewriting the `granola_id` in place to the new slug. Manual frontmatter edits and note body are preserved. No duplicates are created.
+- **Rate-limit handling**: 250 ms minimum interval between API calls (≈4 req/s, under the 5 req/s sustained cap), with one retry on HTTP 429 honoring the `Retry-After` header.
+- **Friendly error surfacing**: missing API key, invalid key (401), and rate-limit failures all produce an Obsidian Notice instead of silent console errors.
+
+### Changed
+
+- **API client rewritten** for cursor-based pagination (max `page_size=30`) instead of the old offset-based POST.
+- **Two-stage fetch**: the new list endpoint returns metadata only, so the plugin now does one `GET /v1/notes` for the list plus one `GET /v1/notes/{id}?include=transcript` per note (transcript only fetched when "Include transcript" is on).
+- **Body content** is now `note.summary_markdown` verbatim — the plugin no longer parses ProseMirror.
+- **`granola_id` format**: was a UUID (`a1b2c3d4-…`), now a `not_*` slug. Existing v2.x notes are auto-migrated by the relink path described above.
+- **`granola_url`**: now read directly from `note.web_url` instead of being constructed from the document ID.
+- **Auto-detect-my-name**: uses `note.owner.name` (the API key owner's account) instead of the calendar `attendee.self === true` heuristic.
+- **Company extraction** (`org` field): the new API doesn't expose enrichment data, so company names are derived solely from attendee email domains (the v2.x email-domain fallback is now the only path). Personal email domains are still excluded.
+- **Attendee names**: the new API returns flat `{name, email}` attendees with Unicode diacritics preserved, so the v2.x diacritic-recovery logic that compared enrichment names against calendar display names was removed.
+- **Transcript shape**: segments are now `{text, start_time, end_time, speaker: {source, diarization_label?}}`. `speaker.source` is an enum (`microphone` / `speaker` / etc.) — `microphone` is the API key owner, anything else is treated as "Them".
+- **Settings UI**:
+  - "Auth key path" → replaced with "API key".
+  - "Auto-detect my name" description updated to reflect the new mechanism.
+  - "Include transcript" description notes that enabling it adds one extra API call per note.
+
+### Removed
+
+Removed because the official public API does not expose the underlying data:
+
+- **"My Notes" section** in synced notes (the `Include My Notes` toggle and code path). The API only exposes the AI-generated `summary_markdown`, not the user's raw typed notes. Verified against the OpenAPI spec, 14 alternative `include=` parameter values (all rejected), and 30 sampled real notes.
+- **Attachment downloads** (`Download Attachments` toggle, attachment folder logic, `IMAGE_EXTENSIONS` / `CONTENT_TYPE_TO_EXTENSION` constants, `getAttachmentExtension` helper, `## Attachments` section in note bodies). No attachment schema exists in the official API and no attachment fields appear in any sampled note.
+- **Meeting platform auto-detection** (`Detect meeting platform` toggle, `Platform Mappings` UI, `detectMeetingPlatform` logic). The `calendar_event` schema has exactly 6 fields — `event_title`, `invitees`, `organiser`, `calendar_event_id`, `scheduled_start_time`, `scheduled_end_time` — none of them a conferencing URL.
+- **Attendee response-status filtering** (`Attendee filter` dropdown, `responseStatus`/`shouldIncludeAttendee` plumbing). Attendees come back as flat `{name, email}` with no per-attendee RSVP status field.
+
+Removed code paths and helpers:
+
+- `loadCredentials()` (3-path file search, JSON-string-vs-object branches, both WorkOS and Cognito token fallbacks)
+- `fetchGranolaDocuments()` (POST-based offset pagination)
+- `fetchTranscript()` (separate transcript endpoint — now folded into `fetchNote` via `?include=transcript`)
+- `extractPanelContent()` (panel/ProseMirror extraction)
+- `convertProseMirrorToMarkdown()` and `processListItem()` (~92 lines)
+- `downloadAttachments()`, `getAttachmentFolder()`, `getAttachmentExtension()`
+- `detectMeetingPlatform()`
+- `extractCompanyNames()` enrichment-data path (kept email-domain fallback only)
+- `getMyNameFromDocument()` (the multi-step self-detection cascade)
+- `buildResponseStatusMap()`, `shouldIncludeAttendee()`
+- `getLatestUpdatedAt()` `last_viewed_panel` fallback (now just returns `note.updated_at`)
+- The `GranolaCredentials`, `GranolaDocument`, `GranolaPerson`, `GranolaPeople`, `GranolaAttachment`, `GranolaCalendarAttendee`, `ProseMirrorNode`, `GranolaPanel`, and old `GranolaCalendarEvent` interfaces from `src/types.ts`
+
+### Migration notes
+
+- Old saved settings keys (`authKeyPath`, `downloadAttachments`, `enableLocationDetection`, `platformMappings`) are stripped from plugin data on first load. Other legacy keys from earlier upstream forks are left in place inert and harmless.
+- If you bumped this plugin from v2.x to an early v3 build that lacked the auto-relink path, your vault may contain duplicate files (originals with UUID `granola_id` plus newer `<name>_HH-mm.md` files with `not_*` IDs). Match each `not_*` file's `granola_url` UUID to the existing UUID file, delete the `not_*` copy, then re-sync — the relink path will rewrite the original's `granola_id` to the new slug.
+- The default `documentSyncLimit` is 100. If you have more than 100 notes in Granola and want all of them relinked in one pass, temporarily bump the limit before the first v3 sync. Otherwise older notes stay frozen with their UUID `granola_id` and just won't receive future content updates from Granola.
+
+### Bundle
+
+- ~30 KB minified (down from ~35 KB in v2.4.0)
+- ~1,870 source lines (down from ~2,317 in v2.4.0) — net deletion of ~450 lines
+
 ## [2.4.0] - 2026-02-06
 
 ### Added

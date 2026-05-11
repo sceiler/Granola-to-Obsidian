@@ -1,6 +1,6 @@
 import { App, PluginSettingTab, Setting } from 'obsidian';
 import type GranolaSyncPlugin from './main';
-import { getDefaultAuthPath, MIN_DOCUMENT_LIMIT, MAX_DOCUMENT_LIMIT, REQUIRED_FRONTMATTER_FIELDS } from './constants';
+import { GRANOLA_API_DOCS_URL, MIN_DOCUMENT_LIMIT, MAX_DOCUMENT_LIMIT, REQUIRED_FRONTMATTER_FIELDS } from './constants';
 
 const FIELD_LABELS: Record<string, string> = {
 	'category': 'Category',
@@ -32,6 +32,29 @@ export class GranolaSyncSettingTab extends PluginSettingTab {
 		const { containerEl } = this;
 		containerEl.empty();
 
+		// Authentication
+		containerEl.createEl('h3', { text: 'Authentication' });
+
+		const apiKeySetting = new Setting(containerEl)
+			.setName('API key')
+			.addText(text => {
+				text.inputEl.type = 'password';
+				text.setPlaceholder('grn_…');
+				text.setValue(this.plugin.settings.apiKey);
+				text.onChange(async (value) => {
+					this.plugin.settings.apiKey = value.trim();
+					await this.plugin.saveSettings();
+				});
+			});
+
+		const apiKeyDesc = apiKeySetting.descEl;
+		apiKeyDesc.createSpan({ text: 'Personal API key from Granola. Generate one at ' });
+		apiKeyDesc.createEl('a', {
+			text: 'docs.granola.ai → Personal API',
+			href: GRANOLA_API_DOCS_URL,
+		});
+		apiKeyDesc.createSpan({ text: '. Requires a Business or Enterprise plan.' });
+
 		// Sync settings
 		containerEl.createEl('h3', { text: 'Sync settings' });
 
@@ -43,18 +66,6 @@ export class GranolaSyncSettingTab extends PluginSettingTab {
 				text.setValue(this.plugin.settings.syncDirectory);
 				text.onChange(async (value) => {
 					this.plugin.settings.syncDirectory = value;
-					await this.plugin.saveSettings();
-				});
-			});
-
-		new Setting(containerEl)
-			.setName('Auth key path')
-			.setDesc('Path to your Granola authentication key file (relative to home directory)')
-			.addText(text => {
-				text.setPlaceholder(getDefaultAuthPath());
-				text.setValue(this.plugin.settings.authKeyPath);
-				text.onChange(async (value) => {
-					this.plugin.settings.authKeyPath = value;
 					await this.plugin.saveSettings();
 				});
 			});
@@ -188,19 +199,8 @@ export class GranolaSyncSettingTab extends PluginSettingTab {
 		containerEl.createEl('h3', { text: 'Note content' });
 
 		new Setting(containerEl)
-			.setName('Include My Notes')
-			.setDesc('Include your personal notes from Granola')
-			.addToggle(toggle => {
-				toggle.setValue(this.plugin.settings.includeMyNotes);
-				toggle.onChange(async (value) => {
-					this.plugin.settings.includeMyNotes = value;
-					await this.plugin.saveSettings();
-				});
-			});
-
-		new Setting(containerEl)
 			.setName('Include Enhanced Notes')
-			.setDesc('Include AI-generated enhanced notes')
+			.setDesc('Include AI-generated enhanced notes (the meeting summary)')
 			.addToggle(toggle => {
 				toggle.setValue(this.plugin.settings.includeEnhancedNotes);
 				toggle.onChange(async (value) => {
@@ -211,7 +211,7 @@ export class GranolaSyncSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName('Include transcript')
-			.setDesc('Include full meeting transcript (slower sync)')
+			.setDesc('Include full meeting transcript (slower sync — one extra API call per note)')
 			.addToggle(toggle => {
 				toggle.setValue(this.plugin.settings.includeFullTranscript);
 				toggle.onChange(async (value) => {
@@ -246,21 +246,6 @@ export class GranolaSyncSettingTab extends PluginSettingTab {
 			});
 
 		new Setting(containerEl)
-			.setName('Attendee filter')
-			.setDesc('Filter attendees based on their calendar response status')
-			.addDropdown(dropdown => {
-				dropdown.addOption('all', 'Include everyone');
-				dropdown.addOption('accepted', 'Only accepted');
-				dropdown.addOption('accepted_tentative', 'Accepted + tentative');
-				dropdown.addOption('exclude_declined', 'Exclude declined');
-				dropdown.setValue(this.plugin.settings.attendeeFilter);
-				dropdown.onChange(async (value) => {
-					this.plugin.settings.attendeeFilter = value as 'all' | 'accepted' | 'accepted_tentative' | 'exclude_declined';
-					await this.plugin.saveSettings();
-				});
-			});
-
-		new Setting(containerEl)
 			.setName('Exclude my name from people')
 			.setDesc('Filter out your name from the people list')
 			.addToggle(toggle => {
@@ -275,7 +260,7 @@ export class GranolaSyncSettingTab extends PluginSettingTab {
 		if (this.plugin.settings.excludeMyNameFromPeople) {
 			new Setting(containerEl)
 				.setName('Auto-detect my name')
-				.setDesc('Automatically detect your name from calendar attendees (uses the attendee marked as "self")')
+				.setDesc('Use the API key owner’s name (the account this key belongs to)')
 				.addToggle(toggle => {
 					toggle.setValue(this.plugin.settings.autoDetectMyName);
 					toggle.onChange(async (value) => {
@@ -300,71 +285,6 @@ export class GranolaSyncSettingTab extends PluginSettingTab {
 				});
 		}
 
-		new Setting(containerEl)
-			.setName('Detect meeting platform')
-			.setDesc('Automatically detect Zoom, Google Meet, or Teams from calendar and add as wiki link to loc field')
-			.addToggle(toggle => {
-				toggle.setValue(this.plugin.settings.enableLocationDetection);
-				toggle.onChange(async (value) => {
-					this.plugin.settings.enableLocationDetection = value;
-					await this.plugin.saveSettings();
-					this.display();
-				});
-			});
-
-		if (this.plugin.settings.enableLocationDetection) {
-			const mappings = this.plugin.settings.platformMappings || [];
-
-			const mappingDesc = containerEl.createEl('div', { cls: 'setting-item-description' });
-			mappingDesc.style.marginTop = '-10px';
-			mappingDesc.style.marginBottom = '10px';
-			mappingDesc.textContent = 'Map proxy URLs (e.g. Gong) to the actual meeting platform. Built-in: Zoom, Google Meet, Teams.';
-
-			for (let i = 0; i < mappings.length; i++) {
-				const mapping = mappings[i];
-				new Setting(containerEl)
-					.setName('URL contains \u2192 Platform')
-					.addText(text => {
-						text.setPlaceholder('gong.io');
-						text.setValue(mapping.urlPattern);
-						text.onChange(async (value) => {
-							this.plugin.settings.platformMappings[i].urlPattern = value;
-							await this.plugin.saveSettings();
-						});
-					})
-					.addText(text => {
-						text.setPlaceholder('Zoom');
-						text.setValue(mapping.platform);
-						text.onChange(async (value) => {
-							this.plugin.settings.platformMappings[i].platform = value;
-							await this.plugin.saveSettings();
-						});
-					})
-					.addExtraButton(button => {
-						button.setIcon('trash');
-						button.setTooltip('Remove mapping');
-						button.onClick(async () => {
-							this.plugin.settings.platformMappings.splice(i, 1);
-							await this.plugin.saveSettings();
-							this.display();
-						});
-					});
-			}
-
-			new Setting(containerEl)
-				.addButton(button => {
-					button.setButtonText('Add platform mapping');
-					button.onClick(async () => {
-						if (!this.plugin.settings.platformMappings) {
-							this.plugin.settings.platformMappings = [];
-						}
-						this.plugin.settings.platformMappings.push({ urlPattern: '', platform: '' });
-						await this.plugin.saveSettings();
-						this.display();
-					});
-				});
-		}
-
 		// Attendee name overrides
 		containerEl.createEl('h3', { text: 'Attendee name overrides' });
 
@@ -373,7 +293,7 @@ export class GranolaSyncSettingTab extends PluginSettingTab {
 		const overrideDesc = containerEl.createEl('div', { cls: 'setting-item-description' });
 		overrideDesc.style.marginTop = '-10px';
 		overrideDesc.style.marginBottom = '10px';
-		overrideDesc.textContent = 'Map an attendee’s email to a fixed display name. Wins over Granola’s enrichment and calendar display names. Useful for fixing diacritics or filling in missing last names.';
+		overrideDesc.textContent = 'Map an attendee’s email to a fixed display name. Useful for fixing diacritics or filling in missing last names.';
 
 		for (let i = 0; i < overrides.length; i++) {
 			const override = overrides[i];
@@ -418,37 +338,6 @@ export class GranolaSyncSettingTab extends PluginSettingTab {
 					this.display();
 				});
 			});
-
-		// Attachments
-		containerEl.createEl('h3', { text: 'Attachments' });
-
-		new Setting(containerEl)
-			.setName('Download attachments')
-			.setDesc('Download meeting attachments (screenshots, etc.) and embed them in the note')
-			.addToggle(toggle => {
-				toggle.setValue(this.plugin.settings.downloadAttachments);
-				toggle.onChange(async (value) => {
-					this.plugin.settings.downloadAttachments = value;
-					await this.plugin.saveSettings();
-					this.display();
-				});
-			});
-
-		if (this.plugin.settings.downloadAttachments) {
-			// getConfig is not in the public API types but exists at runtime
-			const obsidianAttachmentFolder = (this.app.vault as any).getConfig('attachmentFolderPath') as string || 'Vault root';
-			const infoEl = containerEl.createEl('p', {
-				text: 'Attachments will be saved to: ' + obsidianAttachmentFolder,
-				cls: 'setting-item-description'
-			});
-			infoEl.style.marginTop = '-10px';
-
-			const helpEl = containerEl.createEl('p', {
-				text: 'Configure attachment location in Obsidian Settings → Files & Links → Default location for new attachments',
-				cls: 'setting-item-description'
-			});
-			helpEl.style.fontSize = '0.85em';
-		}
 
 		// Custom frontmatter template
 		containerEl.createEl('h3', { text: 'Custom frontmatter template' });

@@ -18,21 +18,24 @@ This fork is streamlined for a specific workflow:
 | Feature | Description |
 |---------|-------------|
 | People as wiki links | `[[John Smith]]` instead of tags |
-| Company as wiki links | Organizations extracted from attendees as `[[Company Name]]` in `org` field |
-| Meeting platform detection | Auto-detects Zoom/Google Meet/Teams and adds `[[Platform]]` to `loc` field |
-| Auto-detect user | Automatically identifies your name from calendar (no manual config needed) |
-| Attachment downloads | Downloads meeting screenshots/files and embeds them in notes |
+| Company as wiki links | Organizations extracted from attendee email domains as `[[Company Name]]` in `org` field |
+| Auto-detect user | Uses the API key owner's name (no manual config needed) |
 | German umlaut conversion | `ae` → `ä`, `oe` → `ö`, `ue` → `ü` (smart: preserves Miguel, Michael, Joel, etc.) |
-| Unicode diacritics preservation | Prefers calendar display names when enrichment data loses diacritics (e.g., "Häkkinen" not "Hakkinen") |
-| Calendar-based dates | `date`/`dateEnd` from Google Calendar, `noteStarted`/`noteEnded` from Granola timestamps |
-| Attendee filtering | Filter by calendar response status (accepted, tentative, declined) |
+| Attendee name overrides | Map an attendee email to a fixed display name |
+| Calendar-based dates | `date`/`dateEnd` from `calendar_event.scheduled_*_time`, `noteStarted`/`noteEnded` from note timestamps |
 | Email extraction | Attendee emails in frontmatter |
 | Configurable frontmatter | Custom category, tags, empty fields for manual entry |
 | Daily note integration | Adds today's meetings to your daily note |
-| Smart sync | Updates notes when Granola has new content while preserving frontmatter edits |
-| Simplified settings | Removed rarely-used features |
+| Incremental sync | Uses `updated_after` to only re-fetch notes changed since last sync |
+| Smart update | Updates notes when Granola has new content while preserving frontmatter edits |
 
-**Removed from original**: Periodic note integration, Granola folders, attendee tags, folder tags, date-based folders, duplicate detection, reorganize notes, note prefix, experimental search scope.
+**Removed from original / earlier forks**: Periodic note integration, Granola folders, attendee tags, folder tags, date-based folders, duplicate detection, reorganize notes, note prefix, experimental search scope. Also removed in 3.0.0: My Notes section, attachment downloads, meeting platform auto-detection (the public Granola API does not expose these — see Migration note below).
+
+## Migration: v3 uses the official Granola public API
+
+As of v3.0.0 the plugin uses Granola's official public API at `https://public-api.granola.ai/v1` with a user-generated API key (`grn_…`), instead of scraping the desktop app's `supabase.json`. Generate a key at [docs.granola.ai → Personal API](https://docs.granola.ai/help-center/sharing/integrations/personal-api) and paste it into plugin settings.
+
+Features lost in this transition (no API surface): raw "My Notes" body, attachment download, and meeting-platform auto-detection from conferencing URLs.
 
 ## Architecture
 
@@ -53,9 +56,9 @@ src/
 |------|---------|
 | `src/main.ts` | Main plugin class with sync logic |
 | `src/settings.ts` | Settings tab UI |
-| `src/types.ts` | TypeScript interfaces (GranolaDocument, GranolaSyncSettings, etc.) |
+| `src/types.ts` | TypeScript interfaces (GranolaNote, GranolaSyncSettings, etc.) |
 | `src/constants.ts` | Constants, API config, default settings |
-| `src/utils.ts` | Utility functions (formatDate, escapeYaml, convertProseMirror, etc.) |
+| `src/utils.ts` | Utility functions (formatDate, escapeYaml, transcript rendering, etc.) |
 
 ### Build Output
 
@@ -71,21 +74,21 @@ src/
 ```
 syncNotes()
   ↓
-fetchGranolaDocuments(token) → [documents]
+fetchNotes(apiKey, updatedAfter=lastSyncAt) → [NoteSummary]  (cursor pagination, page_size=30)
   ↓
-for each document:
-  → fetchTranscript() if enabled
-  → processDocument()
-    → downloadAttachments() [if enabled]
-    → extractAttendeeNames() + generatePeopleLinks()
-    → extractCompanyNames() [for org wiki links]
-    → detectMeetingPlatform() [for loc: [[Zoom]]/[[Google Meet]]/[[Teams]]]
-    → getEffectiveMyName() [auto-detect or manual override]
-    → buildFrontmatter() [date, dateEnd, noteStarted, noteEnded, org, loc, people, etc.]
-    → buildNoteContent() [My Notes, Enhanced Notes, Transcript, Attachments]
+for each summary:
+  → fetchNote(id, { includeTranscript }) → full GranolaNote   (throttled ~4 req/s, 429 backoff)
+  → processDocument(note)
+    → extractAttendeeNames() + generatePeopleLinks() [from flat note.attendees]
+    → extractCompanyNames() [from attendee email domains]
+    → getEffectiveMyName() [note.owner.name or manual override]
+    → buildFrontmatter() [date, dateEnd, noteStarted, noteEnded, org, people, granola_url, etc.]
+    → buildNoteContent() [summary_markdown (Enhanced Notes), Transcript]
     → generateFilename() [template + date formatting]
     → create/update file (preserves frontmatter if updating)
   → track today's notes for daily note integration
+  ↓
+settings.lastSyncAt = syncStartedAt   (used as updated_after on next run)
   ↓
 if enableDailyNoteIntegration:
   → updateDailyNote() [append to Daily/YYYY-MM-DD note]
@@ -93,9 +96,8 @@ if enableDailyNoteIntegration:
 
 ### Key Integration Points
 
-- **Granola API**: Reads auth token from `~/Library/Application Support/Granola/supabase.json` (macOS) or `~/.config/Granola/supabase.json` (Linux)
-- **Obsidian**: Uses Plugin API for file management, settings, status bar, commands
-- **ProseMirror**: `convertProseMirrorToMarkdown()` converts Granola's rich editor format to markdown
+- **Granola API**: `https://public-api.granola.ai/v1` — endpoints `GET /v1/notes`, `GET /v1/notes/{id}?include=transcript`, `GET /v1/folders`. Auth via user-generated API key (`Authorization: Bearer grn_…`). Rate limit: 5 req/s sustained, 25 burst — plugin enforces a 250 ms minimum interval between calls with a one-shot retry on 429.
+- **Obsidian**: Uses Plugin API for file management, settings, status bar, commands.
 
 ## Development
 
@@ -125,25 +127,23 @@ npm run build        # Production build (type-check + bundle)
 
 | Setting | Default | Description |
 |---------|---------|-------------|
+| `apiKey` | `''` | Granola personal API key (`grn_…`). Required. |
 | `syncDirectory` | `Notes` | Where to save synced notes |
 | `filenameTemplate` | `{created_date}_{title}` | Filename format |
 | `dateFormat` | `YYYY-MM-DD` | Date format in filenames |
 | `slashReplacement` | `&` | Replace `/` in titles (e.g., "Jane / John" → "Jane & John") |
 | `autoSyncFrequency` | 5 minutes | Auto-sync interval (0 = manual) |
 | `skipExistingNotes` | `true` | Don't overwrite existing notes (but update if Granola has new content) |
-| `includeMyNotes` | `true` | Include personal notes section |
-| `includeEnhancedNotes` | `true` | Include AI summaries |
-| `includeFullTranscript` | `false` | Include meeting transcript |
-| `includeGranolaUrl` | `true` | Add link back to Granola |
+| `includeEnhancedNotes` | `true` | Include the AI-generated `summary_markdown` as the note body |
+| `includeFullTranscript` | `false` | Fetch and include meeting transcript (adds `?include=transcript` to the per-note call) |
+| `includeGranolaUrl` | `true` | Add `granola_url` (= `note.web_url`) to frontmatter |
 | `includeEmails` | `true` | Include attendee emails |
-| `attendeeFilter` | `all` | Filter attendees by response status: `all`, `accepted`, `accepted_tentative`, `exclude_declined` |
-| `autoDetectMyName` | `true` | Auto-detect user name from calendar attendees |
+| `autoDetectMyName` | `true` | Use `note.owner.name` (the API key owner) for self-exclusion |
 | `myName` | `''` | Manual override for user name |
-| `enableLocationDetection` | `true` | Auto-detect Zoom/Google Meet/Teams for `loc` field |
-| `downloadAttachments` | `true` | Download and embed meeting attachments (uses Obsidian's attachment folder setting) |
 | `enableCustomFrontmatter` | `true` | Use custom frontmatter template |
 | `enableDailyNoteIntegration` | `true` | Add meetings to daily note |
 | `dailyNoteSectionName` | `## Granola Meetings` | Section heading in daily note |
+| `lastSyncAt` | (auto) | ISO timestamp of last successful sync; passed as `updated_after` on next run |
 
 ## Common Development Tasks
 
@@ -169,14 +169,14 @@ The `convertGermanUmlauts()` function in `src/utils.ts` converts `ae` → `ä`, 
 ### Adding New API Integration
 
 1. Add types to `src/types.ts`
-2. Get auth token via `loadCredentials()` in `src/main.ts`
-3. Make fetch requests following the pattern in `fetchGranolaDocuments()`, `fetchTranscript()`
+2. Make GET requests via `this.granolaRequest(url, apiKey)` in `src/main.ts` — it handles throttling, 429 backoff, and 401 surfacing via `GranolaApiError`.
 
 ### Type Definitions
 
 Key interfaces in `src/types.ts`:
-- `GranolaSyncSettings` - Plugin settings
-- `GranolaDocument` - API document response
-- `GranolaCalendarEvent` - Google Calendar event data
-- `ProseMirrorNode` - Rich text content format
-- `GranolaAttachment` - Meeting attachments
+- `GranolaSyncSettings` — plugin settings
+- `GranolaNote` — full note response from `GET /v1/notes/{id}`
+- `GranolaNoteSummary` — list-endpoint shape from `GET /v1/notes`
+- `GranolaCalendarEvent` — embedded calendar event (event_title, invitees, organiser, times)
+- `GranolaTranscriptSegment` — `{ text, start_time, end_time, speaker: { source } }`
+- `GranolaFolder` — for future `GET /v1/folders` integration

@@ -4,23 +4,24 @@
 
 An Obsidian plugin that automatically syncs your [Granola AI](https://granola.ai) meeting notes to your Obsidian vault.
 
-**Key differences from original**: Wiki links for people/companies, calendar-based date fields, meeting platform detection, auto-detection of your name, attachment downloads, attendee filtering, smart German umlaut conversion, Unicode diacritics preservation. See [Differences from Original](#differences-from-original) for details.
+> **v3.0.0 is a breaking release.** The plugin now uses Granola's official public API (`public-api.granola.ai/v1`) instead of scraping the desktop app's local auth file. You must paste a personal API key into settings. A few features are gone because the official API doesn't expose them. See the [v3.0.0 Migration](#v300-migration) section below.
+
+**Key differences from upstream**: official API integration, wiki links for people/companies, calendar-based date fields, auto-detection of your name, email-domain-based company extraction, attendee name overrides, smart German umlaut conversion, incremental sync via `updated_after`. See [Differences from Original](#differences-from-original) for details.
 
 ## Features
 
+- **Official API**: Uses Granola's public API with a stable personal API key (no token expiry)
 - **Automatic & Manual Sync**: Sync on demand or set auto-sync intervals (1 min to 24 hours)
+- **Incremental Sync**: After the first sync, subsequent runs only pull notes Granola has updated since the last successful sync
 - **Configurable Frontmatter**: Customize category, tags, and choose which fields to include
 - **People as Wiki Links**: Attendees appear as `[[John Smith]]` for easy linking
-- **Company Wiki Links**: Organizations extracted from attendee enrichment data or email domains (e.g., `user@acme.com` → `[[Acme]]`) in `org` field
-- **Meeting Platform Detection**: Automatically detects Zoom, Google Meet, or Teams from calendar location, description, or conference data and adds `[[Zoom]]`, `[[Google Meet]]`, or `[[Teams]]` to the `loc` field. Supports custom URL-to-platform mappings for proxies like Gong.
-- **Auto-Detect Your Name**: Automatically identifies you from calendar attendees (no manual configuration needed)
-- **Attachment Downloads**: Downloads meeting screenshots and files, embeds them in notes
-- **Calendar-Based Dates**: `date`/`dateEnd` from scheduled calendar times, `noteStarted`/`noteEnded` from actual Granola timestamps
-- **Attendee Filtering**: Filter by calendar response status (accepted, tentative, declined, or include everyone)
+- **Company Wiki Links**: Organizations extracted from attendee email domains (e.g., `user@acme.com` → `[[Acme]]`) in `org` field
+- **Auto-Detect Your Name**: Uses the API key owner's name (the account the key belongs to) — no manual configuration needed
+- **Attendee Name Overrides**: Map an email to a fixed display name for cases where you want a different label than Granola provides
+- **Calendar-Based Dates**: `date`/`dateEnd` from `calendar_event.scheduled_*_time`, `noteStarted`/`noteEnded` from note timestamps
 - **Smart German Umlaut Conversion**: Converts `ae` → `ä`, `oe` → `ö`, `ue` → `ü` while preserving names like Miguel, Michael, Joel
-- **Unicode Diacritics Preservation**: Prefers Google Calendar display names over enrichment data when diacritics are lost (e.g., enrichment returns "Hakkinen" but calendar has "Häkkinen" → uses `[[Häkkinen]]`)
 - **Daily Note Integration**: Automatically adds today's meetings to your daily note
-- **Smart Content Detection**: Only creates notes when Granola has finished processing (no empty notes)
+- **Auto-Relink Legacy Notes**: If you had earlier versions of this plugin installed, your existing notes' `granola_id` (UUID) gets auto-migrated to the new `not_*` slug on first sync, preventing duplicates
 
 ## Frontmatter Example
 
@@ -29,15 +30,15 @@ An Obsidian plugin that automatically syncs your [Granola AI](https://granola.ai
 category:
   - "[[Meetings]]"
 type:
-date: 2026-02-03T14:00:00        # Scheduled meeting start (from calendar)
-dateEnd: 2026-02-03T14:30:00     # Scheduled meeting end (from calendar)
-noteStarted: 2026-02-03T14:00:06 # When Granola note-taking started
-noteEnded: 2026-02-03T14:50:53   # Last note update (proxy for meeting end)
+date: 2026-02-03T14:00              # From calendar_event.scheduled_start_time
+dateEnd: 2026-02-03T14:30           # From calendar_event.scheduled_end_time
+noteStarted: 2026-02-03T14:00       # note.created_at
+noteEnded: 2026-02-03T14:50         # note.updated_at
 org:
-  - "[[Acme Corp]]"              # Companies extracted from attendees
-  - "[[Globex Inc]]"
-loc:
-  - "[[Zoom]]"                   # Auto-detected from calendar (Zoom/Google Meet/Teams)
+  - "[[Acme]]"                      # Extracted from attendee email domains
+  - "[[Globex]]"
+loc:                                # Empty by default — meeting-platform auto-detection
+                                    # was removed in v3 (no source data in the new API)
 people:
   - "[[John Smith]]"
   - "[[Jane Doe]]"
@@ -47,7 +48,7 @@ tags:
 emails:
   - john.smith@example.com
   - jane.doe@example.com
-granola_id: a1b2c3d4-e5f6-7890-abcd-ef1234567890
+granola_id: not_aBcDeFgHiJkLmN      # New format: not_* slug (was UUID in v2.x)
 title: "Weekly Team Standup"
 granola_url: https://notes.granola.ai/d/a1b2c3d4-e5f6-7890-abcd-ef1234567890
 ---
@@ -55,12 +56,17 @@ granola_url: https://notes.granola.ai/d/a1b2c3d4-e5f6-7890-abcd-ef1234567890
 
 ## Installation
 
+### Prerequisites
+
+You need a personal Granola API key. Generate one in the Granola app (Business or Enterprise plan required as of writing) — see [docs.granola.ai → Personal API](https://docs.granola.ai/help-center/sharing/integrations/personal-api).
+
 ### Manual Installation
 
 1. Download the latest release from the [Releases page](../../releases)
 2. Extract the files to your vault's plugins directory: `.obsidian/plugins/granola-sync/`
 3. Enable the plugin in Obsidian Settings → Community Plugins
-4. Configure your sync settings
+4. Open plugin settings and paste your API key (`grn_…`) into the **API key** field
+5. Hit the ribbon icon or run "Sync Granola Notes" from the command palette
 
 ### Files to Download
 - `main.js`
@@ -71,14 +77,19 @@ granola_url: https://notes.granola.ai/d/a1b2c3d4-e5f6-7890-abcd-ef1234567890
 
 Access plugin settings via **Settings → Community Plugins → Granola Sync**
 
+### Authentication
+
+| Setting | Description |
+|---------|-------------|
+| API Key | Your personal Granola API key (`grn_…`). Required. Stored locally in plugin data. |
+
 ### Sync Settings
 
 | Setting | Description |
 |---------|-------------|
 | Sync Directory | Folder where notes are saved (default: `Notes`) |
-| Auth Key Path | Path to Granola authentication file |
 | Auto-Sync Frequency | How often to sync (manual to every 24 hours) |
-| Document Limit | Maximum number of recent documents to sync |
+| Document Limit | Maximum number of recent documents to sync (1–1000; API hard cap is 30 per page so the plugin paginates internally) |
 | Skip Existing Notes | Don't overwrite notes that already exist (see below) |
 
 #### Skip Existing Notes Behavior
@@ -105,22 +116,21 @@ This handles the race condition where a note is synced before Granola finishes g
 
 | Setting | Description |
 |---------|-------------|
-| Include My Notes | Your personal notes from Granola |
-| Include Enhanced Notes | AI-generated summaries |
-| Include Transcript | Full meeting transcript (slower sync) |
+| Include Enhanced Notes | The AI-generated meeting summary (`summary_markdown` from the API) |
+| Include Transcript | Full meeting transcript — adds one extra `?include=transcript` request per note, so the sync is slower |
+
+> **Note:** v2.x had an "Include My Notes" toggle for your raw user-typed notes. The official API doesn't expose that field, so it was removed in v3.
 
 ### Frontmatter Options
 
 | Setting | Description |
 |---------|-------------|
-| Include Granola URL | Link back to original Granola note |
+| Include Granola URL | Add `granola_url` (= `note.web_url`) to frontmatter |
 | Include Emails | Attendee email addresses |
-| Attendee Filter | Filter by calendar response: `Include everyone`, `Only accepted`, `Accepted + tentative`, `Exclude declined` |
 | Exclude My Name | Filter your name from people list |
-| Auto-Detect My Name | Automatically detect your name from calendar (default: on) |
-| My Name (Override) | Manual override if auto-detection doesn't work |
-| Detect Meeting Platform | Auto-detect Zoom/Google Meet/Teams for `loc` field (default: on) |
-| Platform Mappings | Map proxy URLs (e.g. `gong.io`) to a platform name (e.g. `Zoom`). Useful when meetings use a proxy like Gong that forwards to Zoom. |
+| Auto-Detect My Name | Use the API key owner's name (default: on) |
+| My Name (Override) | Manual override if you prefer a different label than the API returns |
+| Attendee Name Overrides | Per-email name overrides (e.g. fix diacritics, force a nickname) |
 | Enable Custom Frontmatter | Add category, type, org, loc, topics fields |
 | Category | Default category value (e.g., `[[Meetings]]`) |
 | Tags | Default tags (comma-separated) |
@@ -141,8 +151,8 @@ Configure which fields appear in frontmatter and in what order. Access via **Set
 | `dateEnd` | Scheduled meeting end time |
 | `noteStarted` | When Granola note-taking started |
 | `noteEnded` | Last note update (required) |
-| `org` | Company names as wiki links |
-| `loc` | Meeting platform (Zoom/Google Meet/Teams) |
+| `org` | Company names as wiki links (extracted from attendee email domains) |
+| `loc` | Empty placeholder (was meeting platform in v2; see [v3.0.0 Migration](#v300-migration)) |
 | `people` | Attendee names as wiki links |
 | `topics` | Empty placeholder for manual entry |
 | `tags` | Custom tags |
@@ -150,14 +160,6 @@ Configure which fields appear in frontmatter and in what order. Access via **Set
 | `granola_id` | Unique document ID (required) |
 | `title` | Meeting title |
 | `granola_url` | Link to original Granola note |
-
-### Attachments
-
-| Setting | Description |
-|---------|-------------|
-| Download Attachments | Download meeting attachments and embed in notes (default: on) |
-
-Attachments are saved to the folder configured in **Obsidian Settings → Files & Links → Default location for new attachments**. Images are embedded with `![[filename]]`, other files are linked with `[[filename]]`.
 
 ### Daily Note Integration
 
@@ -174,27 +176,36 @@ This fork is streamlined for a specific workflow with enhanced metadata extracti
 
 | Feature | Description |
 |---------|-------------|
-| Company wiki links | `org` field populated with `[[Company Name]]` from enrichment data or email domain fallback |
-| Meeting platform detection | `loc` field auto-populated with `[[Zoom]]`, `[[Google Meet]]`, or `[[Teams]]` from location, description, or conference data. Custom URL mappings for proxies (e.g. Gong → Zoom). |
-| Auto-detect user | Automatically identifies your name from calendar attendees (no manual config needed) |
-| Attachment downloads | Downloads screenshots and files, embeds them in notes |
-| Calendar-based dates | `date`/`dateEnd` from scheduled times, `noteStarted`/`noteEnded` from Granola timestamps |
-| Attendee filtering | Filter by calendar response status (accepted, declined, tentative) |
+| Official Granola API | Stable, supported integration via `public-api.granola.ai/v1` instead of scraping the desktop app |
+| Incremental sync | Uses `updated_after` query param so subsequent syncs only fetch changed notes |
+| Company wiki links | `org` field populated with `[[Company Name]]` from attendee email domains |
+| Auto-detect user | Uses the API key owner's name (the account the key belongs to) |
+| Attendee name overrides | Per-email manual name mapping for diacritics/nicknames |
+| Calendar-based dates | `date`/`dateEnd` from `calendar_event.scheduled_*_time`, `noteStarted`/`noteEnded` from note timestamps |
 | Smart umlaut conversion | Preserves names like Miguel, Michael, Joel while converting German surnames |
-| Unicode diacritics preservation | Prefers calendar display names when enrichment data loses diacritics (e.g., "Häkkinen" → not "Hakkinen") |
+| Auto-relink legacy notes | Notes synced with prior plugin versions (UUID `granola_id`) get auto-migrated to the new `not_*` slug on first sync |
 
 ### Changed Features
 
-| Feature | Original | This Fork |
+| Feature | Upstream | This Fork |
 |---------|----------|-----------|
+| Auth | Reads `supabase.json` from desktop app | User-supplied API key (`grn_…`) |
+| API endpoint | `api.granola.ai/v2/get-documents` (POST) | `public-api.granola.ai/v1/notes` (GET, cursor-paginated) |
 | People format | Tags (`person/john-smith`) | Wiki links (`[[John Smith]]`) |
 | Frontmatter | Fixed format | Configurable template with empty fields |
-| Date source | `created_at` only | Calendar start/end + note start/end timestamps |
+| Date source | `created_at` only | Calendar scheduled times + note timestamps |
 | Umlaut conversion | Simple replacement | Pattern-aware (preserves non-German names) |
 
 ### Removed Features
 
-The following features were removed to simplify the codebase:
+Removed in v3.0.0 because the official public API doesn't expose them:
+
+- **My Notes section** — only the AI `summary_markdown` is exposed
+- **Attachment downloads** — no attachment schema in the public API
+- **Meeting platform auto-detection** (`loc: [[Zoom]]`) — `calendar_event` has no conferencing URL field
+- **Attendee response-status filtering** — flat `{name, email}` attendees, no RSVP status
+
+Removed previously (to simplify the codebase):
 
 - Periodic notes integration
 - Granola folders support
@@ -210,164 +221,187 @@ The following features were removed to simplify the codebase:
 ## Requirements
 
 - Obsidian v1.6.6+
-- Active Granola AI account
-- Granola desktop app installed and authenticated
+- Active Granola AI account on a plan that allows API access (Business or Enterprise at time of writing)
+- A personal Granola API key — generate at [docs.granola.ai → Personal API](https://docs.granola.ai/help-center/sharing/integrations/personal-api)
 
-## Granola API Reference
+## v3.0.0 Migration
 
-This plugin uses Granola's internal API. Below is documentation for developers who want to understand or extend the integration.
+### Why v3 exists
+
+Versions 1.x–2.x authenticated by reading the access token from Granola's local desktop-app storage:
+
+```
+~/Library/Application Support/Granola/supabase.json   (macOS)
+~/.config/Granola/supabase.json                       (Linux)
+%APPDATA%/Granola/supabase.json                       (Windows)
+```
+
+Around May 2026, the Granola desktop app migrated credential storage to an encrypted blob (keyed via the OS keychain). The plaintext `supabase.json` is no longer kept fresh — the token written there expires after ~6 hours and is never rotated, so every API call from any plugin reading that file returns `401 Unauthorized`.
+
+Meanwhile, Granola shipped an official public API at `https://public-api.granola.ai/v1` that uses user-generated keys (`grn_*`) with no expiry or rotation. v3.0.0 switches to this API.
+
+### What changed
+
+| Aspect | v2.x | v3.0.0 |
+|--------|------|--------|
+| Auth | Bearer token scraped from `supabase.json` | User-pasted API key (`grn_…`) |
+| Base URL | `api.granola.ai/v2/get-documents` (POST) | `public-api.granola.ai/v1/notes` (GET) |
+| Pagination | offset/limit (100/page) | cursor (30/page, internal) |
+| Per-note shape | One POST returns everything (rich ProseMirror doc) | List + per-note GET (summary metadata only on list) |
+| Body content | ProseMirror → markdown conversion in plugin | API serves `summary_markdown` directly |
+| `granola_id` format | UUID (e.g. `a1b2c3d4-…`) | Slug (e.g. `not_aBcDeFgHiJkLmN`) |
+| `granola_url` | Constructed by the plugin | Returned as `note.web_url` |
+| Transcript | Separate `POST /v1/get-document-transcript` | Same endpoint, `?include=transcript` |
+| Incremental sync | Not supported (always full pass) | `updated_after` query param |
+| Rate limit | None enforced | 5 req/s sustained, 25 burst (plugin throttles to ~4 req/s) |
+
+### Features removed in v3
+
+Three features are gone because the official API doesn't expose the underlying data. Verified against the [OpenAPI 3.1 spec](https://docs.granola.ai/api-reference/openapi.json) and live probes against 30 real notes (tried 14 `include=` variants, 6 hypothetical subpaths — all rejected):
+
+- **"My Notes" section** — your own typed notes are not exposed. Only the AI-generated `summary_markdown` is.
+- **Attachment downloads** — no attachment schema, no attachment endpoint.
+- **Meeting platform auto-detection** (`loc: [[Zoom]]`) — `calendar_event` has exactly 6 fields (`event_title`, `invitees`, `organiser`, `calendar_event_id`, `scheduled_start_time`, `scheduled_end_time`). No conferencing URL, no `location`, no `hangoutLink`.
+
+The corresponding settings have been removed from the UI. Old saved values for these settings are quietly stripped on plugin load.
+
+### Auto-relinking your existing notes
+
+Notes synced with v2.x have a UUID `granola_id` in their frontmatter (e.g. `granola_id: a1b2c3d4-…`). The new API returns `not_*` slugs instead. Without intervention, every existing note would look "new" to the plugin and a duplicate would be created on the next sync.
+
+v3 solves this by extracting the underlying UUID from the new API's `web_url` (e.g. `https://notes.granola.ai/d/a1b2c3d4-…`) and matching it against your existing notes' `granola_id`. When a match is found, the plugin rewrites that file's `granola_id` to the new `not_*` slug in place — your manual frontmatter edits and note body are preserved.
+
+The relink runs automatically on every sync, so you don't need to do anything. If you have more than `documentSyncLimit` notes (default 100), bump the limit temporarily on the first v3 sync if you want everything migrated in one pass; otherwise older notes stay frozen with their UUID `granola_id` and just won't receive future content updates.
+
+### What if I have v2.x duplicates already?
+
+If you ran v3 with a stale build before the relink logic existed (early-access users), your vault may have `<name>_HH-mm.md` duplicate files with `not_*` IDs alongside the originals. Match each `not_*` file's `granola_url` UUID to the existing UUID file, then delete the `not_*` copy — the next sync will relink the original.
+
+## Granola API Reference (v3)
+
+The plugin uses Granola's official public API. Full documentation: [docs.granola.ai/introduction](https://docs.granola.ai/introduction).
+
+### Endpoints used
+
+- `GET /v1/notes` — list notes (cursor pagination, max `page_size=30`)
+- `GET /v1/notes/{note_id}` — fetch a single note's full body (optionally `?include=transcript`)
+- `GET /v1/folders` — list folders (not currently used by this plugin)
 
 ### Authentication
 
-Granola stores authentication tokens locally:
-- **macOS**: `~/Library/Application Support/Granola/supabase.json`
-- **Linux**: `~/.config/Granola/supabase.json`
-- **Windows**: `%APPDATA%/Granola/supabase.json`
-
-Extract the access token:
-
-```bash
-# macOS/Linux
-cat ~/Library/Application\ Support/Granola/supabase.json | \
-  python3 -c "import json,sys; data=json.load(sys.stdin); tokens=json.loads(data['workos_tokens']); print(tokens['access_token'])"
+```
+Authorization: Bearer grn_YOUR_API_KEY
 ```
 
-### Fetching Documents
+Personal API keys access notes you own and notes shared with you. Enterprise keys access team-wide notes. Both use the same Bearer scheme.
+
+### Listing notes
 
 ```bash
-TOKEN="your_access_token_here"
-
-curl -s --compressed "https://api.granola.ai/v2/get-documents" \
-  -H "Authorization: Bearer ${TOKEN}" \
-  -H "Content-Type: application/json" \
-  -X POST \
-  -d '{"limit": 10, "offset": 0}' | jq '.docs[0]'
+KEY="grn_REPLACE_ME"
+curl -s "https://public-api.granola.ai/v1/notes?page_size=30&updated_after=2026-01-01T00:00:00Z" \
+  -H "Authorization: Bearer ${KEY}"
 ```
-
-### Example API Response (Anonymized)
 
 ```json
 {
-  "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-  "created_at": "2025-03-07T13:00:13.451Z",
-  "updated_at": "2025-09-15T11:30:57.056Z",
-  "title": "Weekly Team Standup",
-  "notes": {
-    "type": "doc",
-    "content": [{"type": "paragraph", "attrs": {"id": "..."}}]
-  },
-  "notes_plain": "",
-  "notes_markdown": "",
-  "transcribe": false,
-  "valid_meeting": true,
-  "privacy_mode_enabled": true,
-  "creation_source": "macOS",
-  "google_calendar_event": {
-    "id": "abc123xyz",
-    "summary": "Weekly Team Standup",
-    "start": {"dateTime": "2025-03-07T14:00:00+01:00", "timeZone": "Europe/Berlin"},
-    "end": {"dateTime": "2025-03-07T14:30:00+01:00", "timeZone": "Europe/Berlin"},
-    "creator": {"email": "organizer@example.com"},
-    "organizer": {"email": "organizer@example.com"},
-    "attendees": [
-      {
-        "email": "organizer@example.com",
-        "organizer": true,
-        "responseStatus": "accepted"
-      },
-      {
-        "email": "attendee1@example.com",
-        "self": true,
-        "responseStatus": "accepted"
-      },
-      {
-        "email": "attendee2@example.com",
-        "responseStatus": "accepted"
-      },
-      {
-        "email": "attendee3@example.com",
-        "responseStatus": "needsAction"
-      }
-    ],
-    "location": "https://example.zoom.us/j/123456789",
-    "conferenceData": {
-      "entryPoints": [{"uri": "https://example.zoom.us/j/123456789", "entryPointType": "video"}]
-    }
-  },
-  "people": {
-    "creator": {
-      "name": "Your Name",
-      "email": "you@example.com",
-      "details": {
-        "person": {
-          "name": {"fullName": "Your Name"},
-          "avatar": "https://..."
-        },
-        "company": {"name": "Your Company"}
-      }
-    },
-    "attendees": [
-      {
-        "email": "colleague@example.com",
-        "details": {
-          "person": {
-            "name": {"fullName": "Colleague Name"},
-            "avatar": "https://..."
-          },
-          "company": {"name": "Their Company"}
-        }
-      }
-    ]
-  },
-  "panels": [
+  "notes": [
     {
-      "type": "my_notes",
-      "content": {"type": "doc", "content": [...]}
-    },
-    {
-      "type": "enhanced_notes",
-      "content": {"type": "doc", "content": [...]}
+      "id": "not_aBcDeFgHiJkLmN",
+      "object": "note",
+      "title": "Weekly Team Standup",
+      "owner": { "name": "Your Name", "email": "you@example.com" },
+      "created_at": "2026-01-15T14:00:13.451Z",
+      "updated_at": "2026-01-15T14:50:57.056Z"
     }
   ],
-  "chapters": null,
-  "meeting_end_count": 1,
-  "summary": null,
-  "has_shareable_link": false,
-  "attachments": [
+  "hasMore": true,
+  "cursor": "eyJjcmVhdGVkX2F0Ijoi..."
+}
+```
+
+The list endpoint returns metadata only. You must call the per-note endpoint to get the body.
+
+### Fetching a single note (with transcript)
+
+```bash
+curl -s "https://public-api.granola.ai/v1/notes/not_aBcDeFgHiJkLmN?include=transcript" \
+  -H "Authorization: Bearer ${KEY}"
+```
+
+```json
+{
+  "id": "not_aBcDeFgHiJkLmN",
+  "object": "note",
+  "title": "Weekly Team Standup",
+  "web_url": "https://notes.granola.ai/d/a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "owner": { "name": "Your Name", "email": "you@example.com" },
+  "created_at": "2026-01-15T14:00:13.451Z",
+  "updated_at": "2026-01-15T14:50:57.056Z",
+  "calendar_event": {
+    "event_title": "Weekly Team Standup",
+    "invitees": [
+      { "email": "you@example.com" },
+      { "email": "colleague@example.com" }
+    ],
+    "organiser": "you@example.com",
+    "calendar_event_id": "abc123xyz_20260115T140000Z",
+    "scheduled_start_time": "2026-01-15T14:00:00Z",
+    "scheduled_end_time": "2026-01-15T14:30:00Z"
+  },
+  "attendees": [
+    { "name": "Your Name", "email": "you@example.com" },
+    { "name": "Colleague Name", "email": "colleague@example.com" }
+  ],
+  "folder_membership": [],
+  "summary_text": "Discussed Q1 planning. Action items: ship the launch by Feb 28.",
+  "summary_markdown": "### Q1 Planning\n\n- Discussed roadmap\n- **Action item:** ship the launch by Feb 28",
+  "transcript": [
     {
-      "id": "abc123-attachment-id",
-      "url": "https://d1ywymt16s8sdr.cloudfront.net/...",
-      "type": "image",
-      "width": 2000,
-      "height": 160
+      "text": "Hey, can you hear me?",
+      "start_time": "2026-01-15T14:00:20.637Z",
+      "end_time": "2026-01-15T14:00:21.717Z",
+      "speaker": { "source": "microphone" }
+    },
+    {
+      "text": "Yep, loud and clear.",
+      "start_time": "2026-01-15T14:00:21.880Z",
+      "end_time": "2026-01-15T14:00:22.840Z",
+      "speaker": { "source": "speaker" }
     }
   ]
 }
 ```
 
-### Key Fields
+### Field mapping
 
-| Field | Description |
-|-------|-------------|
-| `id` | Unique document identifier |
-| `created_at` | When Granola note-taking started (you joined the meeting) |
-| `updated_at` | Last update timestamp (proxy for meeting end) |
-| `google_calendar_event.start.dateTime` | Scheduled meeting start time |
-| `google_calendar_event.end.dateTime` | Scheduled meeting end time |
-| `google_calendar_event.attendees[].responseStatus` | Calendar response: `accepted`, `declined`, `tentative`, `needsAction` |
-| `people.attendees[].details.company.name` | Attendee's company (from enrichment) |
-| `panels` | Contains `my_notes` and `enhanced_notes` in ProseMirror format |
-| `attachments` | Array of meeting attachments with `url`, `type`, `width`, `height` |
+| Frontmatter field | Source on the API response |
+|-------------------|----------------------------|
+| `granola_id` | `note.id` |
+| `title` | `note.title` |
+| `granola_url` | `note.web_url` |
+| `date` | `note.calendar_event.scheduled_start_time` |
+| `dateEnd` | `note.calendar_event.scheduled_end_time` |
+| `noteStarted` | `note.created_at` |
+| `noteEnded` | `note.updated_at` |
+| `people` | `note.attendees[].name`, deduped, wiki-linked, self-excluded |
+| `emails` | `note.attendees[].email` |
+| `org` | Extracted from `note.attendees[].email` domain (non-personal domains) |
+| `loc` | Empty (no source data) |
 
-### Fetching Transcripts
+The "Enhanced Notes" section is `note.summary_markdown` verbatim — the plugin no longer parses ProseMirror.
 
-```bash
-curl -s --compressed "https://api.granola.ai/v1/get-document-transcript" \
-  -H "Authorization: Bearer ${TOKEN}" \
-  -H "Content-Type: application/json" \
-  -X POST \
-  -d '{"document_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"}'
-```
+The speaker source in transcript segments is `microphone` (the API key owner's mic) or `speaker` / other (system audio, i.e. other participants).
+
+### Rate limits
+
+5 req/s sustained, 25 burst per workspace/user. The plugin enforces a 250 ms minimum interval between requests (≈4 req/s) and retries once on HTTP 429 honoring `Retry-After`.
+
+### Caveats
+
+> Per the Granola docs: "The API only returns notes that have a generated AI summary and transcript. Notes that are still being processed or were never summarized won't appear in responses."
+
+This is enforced server-side and replaces the v2 client-side check that gated on enhanced-notes presence.
 
 ## Development
 
@@ -384,11 +418,13 @@ The original plugin was written in plain JavaScript (~2,200 lines in a single fi
 
 ### Bundle Size
 
-| Version | Size | Lines |
-|---------|------|-------|
-| Before (raw JS) | 67 KB | 2,181 |
-| After (minified) | 35 KB | 82 |
-| Source (TypeScript) | - | 2,317 |
+| Version | Size | Source lines |
+|---------|------|--------------|
+| Upstream v0.x (raw JS, single file) | ~67 KB | ~2,181 |
+| v2.x (TS, minified) | ~35 KB | ~2,317 |
+| v3.0.0 (TS, minified) | ~30 KB | ~1,870 |
+
+v3 deletes ~450 source lines: the ProseMirror → markdown converter, attachment download path, meeting-platform detection, panel extraction, complex attendee resolution, and credentials-from-disk logic.
 
 ### Project Structure
 

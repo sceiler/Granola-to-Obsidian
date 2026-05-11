@@ -1,134 +1,77 @@
-// Granola API Types
+// Granola API Types (public-api.granola.ai v1)
 
-export interface GranolaCredentials {
-	workos_tokens?: string | { access_token: string };
-	cognito_tokens?: string | { access_token: string };
+export interface GranolaUser {
+	name: string | null;
+	email: string;
 }
 
-export interface GranolaAttachment {
-	id: string;
-	url: string;
-	file_url?: string;
-	download_url?: string;
-	type: string;
-	width?: number;
-	height?: number;
-	filename?: string;
-	name?: string;
-}
-
-export interface ProseMirrorNode {
-	type: string;
-	content?: ProseMirrorNode[];
-	text?: string;
-	attrs?: {
-		id?: string;
-		level?: number;
-		tight?: boolean;
-	};
-}
-
-export interface GranolaPanel {
-	type: 'my_notes' | 'enhanced_notes';
-	content: ProseMirrorNode;
-}
-
-export interface GranolaPersonDetails {
-	person?: {
-		name?: {
-			fullName?: string;
-			givenName?: string;
-			familyName?: string;
-		};
-		avatar?: string;
-	};
-	company?: {
-		name?: string;
-	};
-}
-
-export interface GranolaPerson {
-	email?: string;
-	name?: string;
-	display_name?: string;
-	details?: GranolaPersonDetails;
-}
-
-export interface GranolaCalendarAttendee {
-	email?: string;
-	displayName?: string;
-	responseStatus?: 'accepted' | 'declined' | 'tentative' | 'needsAction';
-	self?: boolean;
-	organizer?: boolean;
+export interface GranolaCalendarInvitee {
+	email: string;
 }
 
 export interface GranolaCalendarEvent {
-	id: string;
-	summary?: string;
-	description?: string;
-	start?: {
-		dateTime?: string;
-		timeZone?: string;
-	};
-	end?: {
-		dateTime?: string;
-		timeZone?: string;
-	};
-	attendees?: GranolaCalendarAttendee[];
-	location?: string;
-	hangoutLink?: string;
-	conferenceData?: {
-		entryPoints?: Array<{
-			uri?: string;
-			entryPointType?: string;
-		}>;
-	};
-	creator?: {
-		email?: string;
-	};
-	organizer?: {
-		email?: string;
-	};
+	event_title: string | null;
+	invitees: GranolaCalendarInvitee[];
+	organiser: string | null;
+	calendar_event_id: string | null;
+	scheduled_start_time: string | null;
+	scheduled_end_time: string | null;
 }
 
-export interface GranolaPeople {
-	creator?: GranolaPerson;
-	attendees?: GranolaPerson[];
+export interface GranolaFolder {
+	id: string;
+	object: 'folder';
+	name: string;
+	parent_folder_id: string | null;
 }
 
-export interface GranolaDocument {
+export interface GranolaSpeaker {
+	source: string;
+	diarization_label?: string | null;
+}
+
+export interface GranolaTranscriptSegment {
+	text: string;
+	start_time: string;
+	end_time: string;
+	speaker: GranolaSpeaker;
+}
+
+export interface GranolaNoteSummary {
 	id: string;
+	object: 'note';
+	title: string | null;
+	owner: GranolaUser;
 	created_at: string;
 	updated_at: string;
-	title?: string;
-	notes?: ProseMirrorNode;
-	notes_plain?: string;
-	notes_markdown?: string;
-	panels?: GranolaPanel[] | null;
-	last_viewed_panel?: {
-		type?: string;
-		content?: ProseMirrorNode;
-		updated_at?: string;
-		content_updated_at?: string;
-	};
-	google_calendar_event?: GranolaCalendarEvent;
-	people?: GranolaPeople | GranolaPerson[];
-	attachments?: GranolaAttachment[];
-	transcript?: string;
-	transcribe?: boolean;
-	valid_meeting?: boolean;
-	privacy_mode_enabled?: boolean;
-	creation_source?: string;
 }
 
-export interface GranolaApiResponse {
-	docs: GranolaDocument[];
+export interface GranolaNote {
+	id: string;
+	object: 'note';
+	title: string | null;
+	owner: GranolaUser;
+	created_at: string;
+	updated_at: string;
+	web_url: string;
+	calendar_event: GranolaCalendarEvent | null;
+	attendees: GranolaUser[];
+	folder_membership: GranolaFolder[];
+	summary_text: string | null;
+	summary_markdown: string | null;
+	transcript: GranolaTranscriptSegment[] | null;
 }
 
-export interface TranscriptSegment {
-	source: 'microphone' | 'system';
-	text: string;
-	start_timestamp: string;
+export interface ListNotesResponse {
+	notes: GranolaNoteSummary[];
+	hasMore: boolean;
+	cursor: string | null;
+}
+
+export interface ListFoldersResponse {
+	folders: GranolaFolder[];
+	hasMore: boolean;
+	cursor: string | null;
 }
 
 // Plugin Settings Types
@@ -141,11 +84,6 @@ export interface FrontmatterFieldConfig {
 	enabled: boolean;
 }
 
-export interface PlatformMapping {
-	urlPattern: string;
-	platform: string;
-}
-
 export interface AttendeeNameOverride {
 	email: string;
 	name: string;
@@ -153,7 +91,8 @@ export interface AttendeeNameOverride {
 
 export interface GranolaSyncSettings {
 	syncDirectory: string;
-	authKeyPath: string;
+	apiKey: string;
+	lastSyncAt?: string;
 	filenameTemplate: string;
 	dateFormat: string;
 	autoSyncFrequency: number;
@@ -171,10 +110,7 @@ export interface GranolaSyncSettings {
 	excludeMyNameFromPeople: boolean;
 	autoDetectMyName: boolean;
 	myName: string;
-	enableLocationDetection: boolean;
-	platformMappings: PlatformMapping[];
 	attendeeNameOverrides: AttendeeNameOverride[];
-	downloadAttachments: boolean;
 	enableCustomFrontmatter: boolean;
 	customCategory: string;
 	customTags: string;

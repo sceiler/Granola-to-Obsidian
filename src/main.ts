@@ -1,25 +1,19 @@
 import {
+	Notice,
 	Plugin,
 	TFile,
-	TFolder,
 	requestUrl,
-	type App,
-	type CachedMetadata,
+	type RequestUrlResponse,
 } from 'obsidian';
 import * as path from 'path';
-import * as fs from 'fs';
-import * as os from 'os';
 
 import type {
 	GranolaSyncSettings,
-	GranolaDocument,
-	GranolaApiResponse,
-	GranolaCredentials,
-	GranolaPerson,
-	GranolaCalendarAttendee,
-	ProseMirrorNode,
+	GranolaNote,
+	GranolaNoteSummary,
+	GranolaUser,
+	ListNotesResponse,
 	TodaysNote,
-	TranscriptSegment,
 } from './types';
 
 import {
@@ -28,31 +22,36 @@ import {
 	REQUIRED_FRONTMATTER_FIELDS,
 	API_BATCH_SIZE,
 	GRANOLA_API_BASE,
-	GRANOLA_API_VERSION,
-	IMAGE_EXTENSIONS,
+	GRANOLA_API_DOCS_URL,
+	RATE_LIMIT_MIN_INTERVAL_MS,
 } from './constants';
 
 import {
-	safeJsonParse,
 	escapeYamlValue,
 	formatDate,
 	formatDateTimeProperty,
 	formatDateWithPattern,
 	convertGermanUmlauts,
-	convertProseMirrorToMarkdown,
 	transcriptToMarkdown,
-	getAttachmentExtension,
 	extractNameFromEmail,
 	extractCompanyFromEmail,
 } from './utils';
 
 import { GranolaSyncSettingTab } from './settings';
 
+class GranolaApiError extends Error {
+	constructor(public readonly status: number, message: string) {
+		super(message);
+		this.name = 'GranolaApiError';
+	}
+}
+
 export default class GranolaSyncPlugin extends Plugin {
 	settings: GranolaSyncSettings = DEFAULT_SETTINGS;
 	private autoSyncInterval: number | null = null;
 	private statusBarItem: HTMLElement | null = null;
 	private ribbonIconEl: HTMLElement | null = null;
+	private lastApiCallAt = 0;
 
 	async onload(): Promise<void> {
 		await this.loadSettings();
@@ -98,6 +97,13 @@ export default class GranolaSyncPlugin extends Plugin {
 		// Migration: initialize frontmatter fields if not present
 		if (!this.settings.frontmatterFields || this.settings.frontmatterFields.length === 0) {
 			this.settings.frontmatterFields = DEFAULT_FRONTMATTER_FIELDS.map(f => ({ ...f }));
+		}
+
+		// Migration: strip retired settings keys from prior installs.
+		const retired = ['authKeyPath', 'downloadAttachments', 'enableLocationDetection', 'platformMappings'];
+		const raw = (data ?? {}) as Record<string, unknown>;
+		if (retired.some(k => k in raw)) {
+			for (const k of retired) delete (this.settings as unknown as Record<string, unknown>)[k];
 		}
 	}
 
@@ -152,15 +158,20 @@ export default class GranolaSyncPlugin extends Plugin {
 
 			await this.ensureDirectoryExists();
 
-			const token = await this.loadCredentials();
-			if (!token) {
-				this.updateStatusBar('Error', 'credentials failed');
+			const apiKey = this.settings.apiKey?.trim();
+			if (!apiKey) {
+				new Notice('Granola: API key not set. Open plugin settings and paste your key from notes.granola.ai.');
+				this.updateStatusBar('Error', 'API key missing');
 				return;
 			}
 
-			const documents = await this.fetchGranolaDocuments(token);
-			if (!documents) {
-				this.updateStatusBar('Error', 'fetch failed');
+			const syncStartedAt = new Date().toISOString();
+
+			let summaries: GranolaNoteSummary[];
+			try {
+				summaries = await this.fetchNotes(apiKey, this.settings.lastSyncAt);
+			} catch (error) {
+				this.handleApiError(error, 'list notes');
 				return;
 			}
 
@@ -168,29 +179,33 @@ export default class GranolaSyncPlugin extends Plugin {
 			const todaysNotes: TodaysNote[] = [];
 			const today = new Date().toDateString();
 
-			for (const doc of documents) {
-				try {
-					if (this.settings.includeFullTranscript) {
-						const transcriptData = await this.fetchTranscript(token, doc.id);
-						doc.transcript = transcriptToMarkdown(transcriptData);
-					}
+			for (let i = 0; i < summaries.length; i++) {
+				const summary = summaries[i];
 
-					const success = await this.processDocument(doc, token);
+				if (summaries.length > 30 && i % 10 === 0) {
+					this.updateStatusBar('Syncing', `${i + 1}/${summaries.length}`);
+				}
+
+				try {
+					const note = await this.fetchNote(summary.id, apiKey, {
+						includeTranscript: this.settings.includeFullTranscript,
+					});
+
+					const success = await this.processDocument(note);
 					if (success) {
 						syncedCount++;
 					}
 
-					// Track today's notes for daily note integration
-					if (this.settings.enableDailyNoteIntegration && doc.created_at) {
-						const noteDate = new Date(doc.created_at).toDateString();
+					if (this.settings.enableDailyNoteIntegration && note.created_at) {
+						const noteDate = new Date(note.created_at).toDateString();
 						if (noteDate === today) {
-							const actualFile = await this.findExistingNoteByGranolaId(doc.id);
+							const actualFile = await this.findExistingNoteByGranolaId(note.id);
 							if (actualFile) {
-								const createdDate = new Date(doc.created_at);
+								const createdDate = new Date(note.created_at);
 								const hours = String(createdDate.getHours()).padStart(2, '0');
 								const minutes = String(createdDate.getMinutes()).padStart(2, '0');
 								todaysNotes.push({
-									title: doc.title || 'Untitled Granola Note',
+									title: note.title || 'Untitled Granola Note',
 									actualFilePath: actualFile.path,
 									time: hours + ':' + minutes
 								});
@@ -198,14 +213,20 @@ export default class GranolaSyncPlugin extends Plugin {
 						}
 					}
 				} catch (error) {
-					console.error('Error processing document ' + doc.title + ':', error);
+					if (error instanceof GranolaApiError && error.status === 401) {
+						this.handleApiError(error, 'fetch note');
+						return;
+					}
+					console.error(`Error processing note ${summary.title ?? summary.id}:`, error);
 				}
 			}
 
-			// Update daily note with today's meetings
 			if (this.settings.enableDailyNoteIntegration && todaysNotes.length > 0) {
 				await this.updateDailyNote(todaysNotes);
 			}
+
+			this.settings.lastSyncAt = syncStartedAt;
+			await this.saveData(this.settings);
 
 			this.updateStatusBar('Complete', syncedCount);
 
@@ -215,614 +236,178 @@ export default class GranolaSyncPlugin extends Plugin {
 		}
 	}
 
-	private async loadCredentials(): Promise<string | null> {
-		const homedir = os.homedir();
-		const username = os.userInfo().username;
-		const authPaths = [
-			path.resolve(homedir, 'Users', username, 'Library/Application Support/Granola/supabase.json'),
-			path.resolve(homedir, this.settings.authKeyPath),
-			path.resolve(homedir, 'Library/Application Support/Granola/supabase.json')
-		];
-
-		for (const authPath of authPaths) {
-			try {
-				if (!fs.existsSync(authPath)) {
-					continue;
-				}
-
-				let credentialsFile: string;
-				try {
-					credentialsFile = fs.readFileSync(authPath, 'utf8');
-				} catch (readError) {
-					console.error('Failed to read credentials file:', readError);
-					continue;
-				}
-
-				const { data, error: parseError } = safeJsonParse<GranolaCredentials>(credentialsFile, 'Granola credentials file');
-				if (parseError || !data) {
-					console.error(parseError);
-					continue;
-				}
-
-				let accessToken: string | null = null;
-
-				if (data.workos_tokens) {
-					if (typeof data.workos_tokens === 'string') {
-						const { data: workosTokens } = safeJsonParse<{ access_token: string }>(data.workos_tokens, 'WorkOS tokens');
-						if (workosTokens) {
-							accessToken = workosTokens.access_token;
-						}
-					} else if (typeof data.workos_tokens === 'object') {
-						accessToken = data.workos_tokens.access_token;
-					}
-				}
-
-				if (!accessToken && data.cognito_tokens) {
-					if (typeof data.cognito_tokens === 'string') {
-						const { data: cognitoTokens } = safeJsonParse<{ access_token: string }>(data.cognito_tokens, 'Cognito tokens');
-						if (cognitoTokens) {
-							accessToken = cognitoTokens.access_token;
-						}
-					} else if (typeof data.cognito_tokens === 'object') {
-						accessToken = data.cognito_tokens.access_token;
-					}
-				}
-
-				if (accessToken) {
-					return accessToken;
-				}
-			} catch (error) {
-				console.error('Error loading credentials:', error);
-				continue;
-			}
+	private handleApiError(error: unknown, context: string): void {
+		if (error instanceof GranolaApiError && error.status === 401) {
+			new Notice('Granola: API key rejected (401). Check your key in plugin settings.');
+			this.updateStatusBar('Error', 'invalid API key');
+			return;
 		}
-
-		console.error('No valid Granola credentials found. Please ensure Granola is installed and you are logged in.');
-		return null;
+		console.error(`Granola ${context} failed:`, error);
+		this.updateStatusBar('Error', `${context} failed`);
 	}
 
-	private async fetchGranolaDocuments(token: string): Promise<GranolaDocument[] | null> {
-		try {
-			const allDocs: GranolaDocument[] = [];
-			let offset = 0;
-			let hasMore = true;
-			const maxDocuments = this.settings.documentSyncLimit;
-
-			while (hasMore && allDocs.length < maxDocuments) {
-				const response = await requestUrl({
-					url: `${GRANOLA_API_BASE}/v2/get-documents`,
-					method: 'POST',
-					headers: {
-						'Authorization': 'Bearer ' + token,
-						'Content-Type': 'application/json',
-						'Accept': '*/*',
-						'User-Agent': `Granola/${GRANOLA_API_VERSION}`,
-						'X-Client-Version': GRANOLA_API_VERSION
-					},
-					body: JSON.stringify({
-						limit: API_BATCH_SIZE,
-						offset: offset,
-						include_last_viewed_panel: true,
-						include_panels: true
-					})
-				});
-
-				const apiResponse = response.json as GranolaApiResponse;
-
-				if (!apiResponse || !apiResponse.docs) {
-					return allDocs.length > 0 ? allDocs : null;
-				}
-
-				const docs = apiResponse.docs;
-				allDocs.push(...docs);
-
-				if (docs.length < API_BATCH_SIZE || allDocs.length >= maxDocuments) {
-					hasMore = false;
-				} else {
-					offset += API_BATCH_SIZE;
-				}
-
-				if (allDocs.length > 100) {
-					this.updateStatusBar('Syncing', `${allDocs.length} docs fetched`);
-				}
-			}
-
-			if (allDocs.length > maxDocuments) {
-				allDocs.length = maxDocuments;
-			}
-
-			return allDocs;
-		} catch (error) {
-			console.error('Error fetching documents:', error);
-			return null;
+	private async throttle(): Promise<void> {
+		const elapsed = Date.now() - this.lastApiCallAt;
+		if (elapsed < RATE_LIMIT_MIN_INTERVAL_MS) {
+			await new Promise(r => window.setTimeout(r, RATE_LIMIT_MIN_INTERVAL_MS - elapsed));
 		}
+		this.lastApiCallAt = Date.now();
 	}
 
-	private async fetchTranscript(token: string, docId: string): Promise<TranscriptSegment[] | null> {
-		try {
-			const response = await requestUrl({
-				url: `${GRANOLA_API_BASE}/v1/get-document-transcript`,
-				method: 'POST',
-				headers: {
-					'Authorization': 'Bearer ' + token,
-					'Content-Type': 'application/json',
-					'Accept': 'application/json',
-				},
-				body: JSON.stringify({
-					'document_id': docId
-				})
+	private async granolaRequest(url: string, apiKey: string): Promise<RequestUrlResponse> {
+		await this.throttle();
+		let response = await requestUrl({
+			url,
+			method: 'GET',
+			headers: { 'Authorization': `Bearer ${apiKey}` },
+			throw: false,
+		});
+
+		// One backoff retry on 429.
+		if (response.status === 429) {
+			const retryAfterHeader = response.headers?.['retry-after'] ?? response.headers?.['Retry-After'];
+			const retryAfterMs = retryAfterHeader ? Math.max(1000, Number(retryAfterHeader) * 1000) : 2000;
+			await new Promise(r => window.setTimeout(r, retryAfterMs));
+			this.lastApiCallAt = Date.now();
+			response = await requestUrl({
+				url,
+				method: 'GET',
+				headers: { 'Authorization': `Bearer ${apiKey}` },
+				throw: false,
 			});
-
-			return response.json as TranscriptSegment[];
-		} catch (error) {
-			console.error('Error fetching transcript for document ' + docId + ':', error);
-			return null;
 		}
+
+		if (response.status < 200 || response.status >= 300) {
+			const message = (() => {
+				try {
+					const body = response.json as { message?: string; error?: string };
+					return body?.message || body?.error || `HTTP ${response.status}`;
+				} catch {
+					return `HTTP ${response.status}`;
+				}
+			})();
+			throw new GranolaApiError(response.status, message);
+		}
+
+		return response;
 	}
 
-	private extractPanelContent(doc: GranolaDocument, panelType: 'my_notes' | 'enhanced_notes'): ProseMirrorNode | null {
-		// First check panels array
-		if (doc.panels && Array.isArray(doc.panels)) {
-			for (const panel of doc.panels) {
-				if (panel.type === panelType && panel.content && panel.content.type === 'doc') {
-					return panel.content;
-				}
+	private async fetchNotes(apiKey: string, updatedAfter?: string): Promise<GranolaNoteSummary[]> {
+		const all: GranolaNoteSummary[] = [];
+		const cap = this.settings.documentSyncLimit;
+		let cursor: string | null = null;
+
+		while (all.length < cap) {
+			const params = new URLSearchParams();
+			params.set('page_size', String(API_BATCH_SIZE));
+			if (cursor) params.set('cursor', cursor);
+			if (updatedAfter) params.set('updated_after', updatedAfter);
+
+			const response = await this.granolaRequest(`${GRANOLA_API_BASE}/v1/notes?${params.toString()}`, apiKey);
+			const body = response.json as ListNotesResponse;
+
+			if (!body?.notes) break;
+			all.push(...body.notes);
+
+			if (!body.hasMore || !body.cursor) break;
+			cursor = body.cursor;
+
+			if (all.length > 100) {
+				this.updateStatusBar('Syncing', `${all.length} listed`);
 			}
 		}
 
-		// For my_notes, also check doc.notes directly (used when no AI processing)
-		if (panelType === 'my_notes' && doc.notes && doc.notes.type === 'doc') {
-			return doc.notes;
-		}
-
-		// Fallback for enhanced_notes from last_viewed_panel
-		if (panelType === 'enhanced_notes' && doc.last_viewed_panel &&
-			doc.last_viewed_panel.content && doc.last_viewed_panel.content.type === 'doc') {
-			return doc.last_viewed_panel.content;
-		}
-
-		return null;
+		if (all.length > cap) all.length = cap;
+		return all;
 	}
 
-	private getLatestUpdatedAt(doc: GranolaDocument): string {
-		const candidates = [doc.updated_at];
-		if (doc.last_viewed_panel?.content_updated_at) {
-			candidates.push(doc.last_viewed_panel.content_updated_at);
-		} else if (doc.last_viewed_panel?.updated_at) {
-			candidates.push(doc.last_viewed_panel.updated_at);
-		}
-		return candidates.reduce((latest, ts) => ts > latest ? ts : latest);
+	private async fetchNote(noteId: string, apiKey: string, options: { includeTranscript: boolean }): Promise<GranolaNote> {
+		const params = options.includeTranscript ? '?include=transcript' : '';
+		const response = await this.granolaRequest(`${GRANOLA_API_BASE}/v1/notes/${noteId}${params}`, apiKey);
+		return response.json as GranolaNote;
 	}
 
-	private buildResponseStatusMap(doc: GranolaDocument): Map<string, string> {
-		const statusMap = new Map<string, string>();
-		if (doc.google_calendar_event?.attendees) {
-			for (const attendee of doc.google_calendar_event.attendees) {
-				if (attendee.email && attendee.responseStatus) {
-					statusMap.set(attendee.email.toLowerCase(), attendee.responseStatus);
-				}
-			}
-		}
-		return statusMap;
-	}
-
-	private shouldIncludeAttendee(responseStatus: string | null): boolean {
-		const filter = this.settings.attendeeFilter;
-
-		if (filter === 'all') {
-			return true;
-		}
-
-		if (!responseStatus) {
-			return true;
-		}
-
-		switch (filter) {
-			case 'accepted':
-				return responseStatus === 'accepted';
-			case 'accepted_tentative':
-				return responseStatus === 'accepted' || responseStatus === 'tentative';
-			case 'exclude_declined':
-				return responseStatus !== 'declined';
-			default:
-				return true;
-		}
-	}
-
-	private extractCompanyNames(doc: GranolaDocument): string[] {
+	private extractCompanyNames(note: GranolaNote): string[] {
 		const companies = new Set<string>();
-		const responseStatusMap = this.buildResponseStatusMap(doc);
-
 		try {
-			// Extract from people.attendees
-			const people = doc.people;
-			if (people && 'attendees' in people && Array.isArray(people.attendees)) {
-				for (const attendee of people.attendees) {
-					const email = attendee.email?.toLowerCase() ?? null;
-					const responseStatus = email ? responseStatusMap.get(email) ?? null : null;
-					if (!this.shouldIncludeAttendee(responseStatus)) {
-						continue;
-					}
-
-					// Try enrichment data first
-					if (attendee.details?.company?.name) {
-						const companyName = attendee.details.company.name.trim();
-						if (companyName) {
-							companies.add(companyName);
-							continue;
-						}
-					}
-
-					// Fallback: extract company from email domain
-					if (email) {
-						const companyFromEmail = extractCompanyFromEmail(email);
-						if (companyFromEmail) {
-							companies.add(companyFromEmail);
-						}
-					}
-				}
-			}
-
-			// Also check creator's company (no email fallback for creator - they're usually "you")
-			if (people && 'creator' in people && people.creator) {
-				const creator = people.creator;
-				if (creator.details?.company?.name) {
-					const companyName = creator.details.company.name.trim();
-					if (companyName) {
-						companies.add(companyName);
-					}
-				}
+			for (const attendee of note.attendees) {
+				const email = attendee.email?.toLowerCase();
+				if (!email) continue;
+				const company = extractCompanyFromEmail(email);
+				if (company) companies.add(company);
 			}
 		} catch (error) {
 			console.error('Error extracting company names:', error);
 		}
-
 		return Array.from(companies);
 	}
 
-	private detectMeetingPlatform(doc: GranolaDocument): string {
-		if (!this.settings.enableLocationDetection) {
-			return '';
-		}
-
-		try {
-			const calendarEvent = doc.google_calendar_event;
-			if (!calendarEvent) {
-				return '';
-			}
-
-			const location = (calendarEvent.location || '').toLowerCase();
-			const description = (calendarEvent.description || '').toLowerCase();
-			const hangoutLink = (calendarEvent.hangoutLink || '').toLowerCase();
-
-			let conferenceUrls: string[] = [];
-			if (calendarEvent.conferenceData?.entryPoints) {
-				conferenceUrls = calendarEvent.conferenceData.entryPoints
-					.filter(ep => ep.uri)
-					.map(ep => ep.uri!.toLowerCase());
-			}
-
-			const allText = [location, description, hangoutLink, ...conferenceUrls].join(' ');
-
-			// Check custom platform mappings first (e.g. gong.io → Zoom)
-			if (this.settings.platformMappings?.length > 0) {
-				for (const mapping of this.settings.platformMappings) {
-					if (mapping.urlPattern && mapping.platform && allText.includes(mapping.urlPattern.toLowerCase())) {
-						return '[[' + mapping.platform + ']]';
-					}
-				}
-			}
-
-			if (allText.includes('zoom.us') || allText.includes('zoom.com')) {
-				return '[[Zoom]]';
-			}
-			if (allText.includes('meet.google.com') || allText.includes('hangouts.google.com')) {
-				return '[[Google Meet]]';
-			}
-			if (allText.includes('teams.microsoft.com') || allText.includes('teams.live.com')) {
-				return '[[Teams]]';
-			}
-
-			return '';
-		} catch (error) {
-			console.error('Error detecting meeting platform:', error);
-			return '';
-		}
-	}
-
-	private getMyNameFromDocument(doc: GranolaDocument): string | null {
-		try {
-			if (doc.google_calendar_event?.attendees) {
-				for (const attendee of doc.google_calendar_event.attendees) {
-					if (attendee.self === true) {
-						const selfEmail = attendee.email?.toLowerCase();
-
-						// Check if self is the creator
-						const people = doc.people;
-						if (people && 'creator' in people && people.creator) {
-							const creatorEmail = people.creator.email?.toLowerCase();
-							if (creatorEmail === selfEmail) {
-								if (people.creator.details?.person?.name?.fullName) {
-									return people.creator.details.person.name.fullName;
-								}
-								if (people.creator.name) {
-									return people.creator.name;
-								}
-							}
-						}
-
-						// Check people.attendees
-						if (people && 'attendees' in people && Array.isArray(people.attendees)) {
-							for (const person of people.attendees) {
-								if (person.email?.toLowerCase() === selfEmail) {
-									if (person.details?.person?.name?.fullName) {
-										return person.details.person.name.fullName;
-									}
-								}
-							}
-						}
-
-						// Fallback: use displayName from calendar attendee
-						if (attendee.displayName) {
-							return attendee.displayName;
-						}
-
-						// Last resort: extract from email
-						if (selfEmail) {
-							return extractNameFromEmail(selfEmail);
-						}
-					}
-				}
-			}
-
-			return null;
-		} catch (error) {
-			console.error('Error auto-detecting user name:', error);
-			return null;
-		}
-	}
-
-	private getEffectiveMyName(doc: GranolaDocument): string {
-		if (this.settings.myName && this.settings.myName.trim()) {
-			return this.settings.myName.trim();
-		}
-
+	private getEffectiveMyName(note: GranolaNote): string {
+		const manual = this.settings.myName?.trim();
+		if (manual) return manual;
 		if (this.settings.autoDetectMyName) {
-			const autoDetected = this.getMyNameFromDocument(doc);
-			if (autoDetected) {
-				return autoDetected;
-			}
+			return note.owner?.name?.trim() || '';
 		}
-
 		return '';
 	}
 
-	private extractAttendeeNames(doc: GranolaDocument): string[] {
-		const attendees: string[] = [];
-		const processedEmails = new Set<string>();
-		const responseStatusMap = this.buildResponseStatusMap(doc);
-
-		// Build email → calendar displayName map for Unicode name resolution.
-		// People enrichment data often loses diacritics (e.g., Salimäki → Salimaki),
-		// but Google Calendar preserves the original Unicode displayName.
-		const calendarNameMap = new Map<string, string>();
-		if (doc.google_calendar_event?.attendees) {
-			for (const attendee of doc.google_calendar_event.attendees) {
-				if (attendee.email && attendee.displayName) {
-					calendarNameMap.set(attendee.email.toLowerCase(), attendee.displayName);
-				}
-			}
+	private resolveAttendeeName(attendee: GranolaUser, overrideMap: Map<string, string>): string | null {
+		const email = attendee.email?.toLowerCase();
+		if (email) {
+			const override = overrideMap.get(email);
+			if (override) return override;
 		}
+		const name = attendee.name?.trim();
+		if (name) return name;
+		if (attendee.email) return extractNameFromEmail(attendee.email);
+		return null;
+	}
 
-		// User-defined email → name overrides win over every other resolution path.
+	private buildOverrideMap(): Map<string, string> {
 		const overrideMap = new Map<string, string>();
 		for (const o of this.settings.attendeeNameOverrides ?? []) {
 			const email = o.email?.trim().toLowerCase();
 			const name = o.name?.trim();
 			if (email && name) overrideMap.set(email, name);
 		}
-
-		try {
-			const people = doc.people;
-
-			if (overrideMap.size > 0) {
-				const overrideEmails = new Set<string>();
-				if (Array.isArray(people)) {
-					for (const p of people) if (p.email) overrideEmails.add(p.email.toLowerCase());
-				}
-				if (doc.google_calendar_event?.attendees) {
-					for (const a of doc.google_calendar_event.attendees) {
-						if (a.email) overrideEmails.add(a.email.toLowerCase());
-					}
-				}
-
-				for (const email of overrideEmails) {
-					const overrideName = overrideMap.get(email);
-					if (!overrideName) continue;
-
-					const responseStatus = responseStatusMap.get(email) ?? null;
-					if (!this.shouldIncludeAttendee(responseStatus)) {
-						processedEmails.add(email);
-						continue;
-					}
-
-					if (!attendees.includes(overrideName)) {
-						attendees.push(overrideName);
-					}
-					processedEmails.add(email);
-				}
-			}
-
-			// Handle people as array (legacy format)
-			if (Array.isArray(people)) {
-				for (const person of people) {
-					const email = person.email?.toLowerCase() ?? null;
-					const responseStatus = email ? responseStatusMap.get(email) ?? null : null;
-					if (!this.shouldIncludeAttendee(responseStatus)) {
-						if (email) processedEmails.add(email);
-						continue;
-					}
-
-					let name: string | null = null;
-
-					if (person.details?.person?.name) {
-						const personDetails = person.details.person.name;
-						if (personDetails.fullName) {
-							name = personDetails.fullName;
-						} else if (personDetails.givenName && personDetails.familyName) {
-							name = `${personDetails.givenName} ${personDetails.familyName}`;
-						} else if (personDetails.givenName) {
-							name = personDetails.givenName;
-						}
-					} else if (person.display_name) {
-						name = person.display_name;
-					} else if (person.name) {
-						name = person.name;
-					}
-
-					// Prefer calendar displayName when enrichment data lost diacritics
-					// e.g., people API returns "Salimaki" but calendar has "Salimäki"
-					if (name && email) {
-						const calendarName = calendarNameMap.get(email);
-						if (calendarName) {
-							const stripDiacritics = (s: string) =>
-								s.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-							if (stripDiacritics(calendarName).toLowerCase() === stripDiacritics(name).toLowerCase()
-								&& calendarName !== name) {
-								name = calendarName;
-							}
-						}
-					}
-
-					if (name && !attendees.includes(name)) {
-						attendees.push(name);
-						if (email) {
-							processedEmails.add(email);
-						}
-					}
-				}
-			}
-
-			// Handle calendar attendees
-			if (doc.google_calendar_event?.attendees) {
-				for (const attendee of doc.google_calendar_event.attendees) {
-					if (attendee.email && processedEmails.has(attendee.email.toLowerCase())) {
-						continue;
-					}
-
-					if (!this.shouldIncludeAttendee(attendee.responseStatus ?? null)) {
-						if (attendee.email) processedEmails.add(attendee.email.toLowerCase());
-						continue;
-					}
-
-					if (attendee.displayName && !attendees.includes(attendee.displayName)) {
-						attendees.push(attendee.displayName);
-						if (attendee.email) {
-							processedEmails.add(attendee.email.toLowerCase());
-						}
-					}
-				}
-			}
-
-			// Fallback: extract from email if no display name
-			if (Array.isArray(people)) {
-				for (const person of people) {
-					if (person.email && !processedEmails.has(person.email.toLowerCase())) {
-						const responseStatus = responseStatusMap.get(person.email.toLowerCase()) ?? null;
-						if (!this.shouldIncludeAttendee(responseStatus)) {
-							processedEmails.add(person.email.toLowerCase());
-							continue;
-						}
-
-						const hasName = person.name || person.display_name ||
-							(person.details?.person?.name);
-
-						if (!hasName) {
-							const emailName = extractNameFromEmail(person.email);
-							if (!attendees.includes(emailName)) {
-								attendees.push(emailName);
-								processedEmails.add(person.email.toLowerCase());
-							}
-						}
-					}
-				}
-			}
-
-			// Fallback: extract from email for calendar attendees without display names
-			if (doc.google_calendar_event?.attendees) {
-				for (const attendee of doc.google_calendar_event.attendees) {
-					if (attendee.email && !processedEmails.has(attendee.email.toLowerCase())) {
-						if (!this.shouldIncludeAttendee(attendee.responseStatus ?? null)) {
-							processedEmails.add(attendee.email.toLowerCase());
-							continue;
-						}
-
-						if (!attendee.displayName) {
-							const emailName = extractNameFromEmail(attendee.email);
-							if (!attendees.includes(emailName)) {
-								attendees.push(emailName);
-								processedEmails.add(attendee.email.toLowerCase());
-							}
-						}
-					}
-				}
-			}
-
-			return attendees;
-		} catch (error) {
-			console.error('Error extracting attendee names:', error);
-			return [];
-		}
+		return overrideMap;
 	}
 
-	private extractAttendeeEmails(doc: GranolaDocument): string[] {
-		const emails: string[] = [];
-		const processedEmails = new Set<string>();
-		const responseStatusMap = this.buildResponseStatusMap(doc);
-
+	private extractAttendeeNames(note: GranolaNote): string[] {
+		const overrideMap = this.buildOverrideMap();
+		const names: string[] = [];
 		try {
-			const people = doc.people;
-
-			if (Array.isArray(people)) {
-				for (const person of people) {
-					if (person.email && !processedEmails.has(person.email)) {
-						const responseStatus = responseStatusMap.get(person.email.toLowerCase()) ?? null;
-						if (!this.shouldIncludeAttendee(responseStatus)) {
-							processedEmails.add(person.email);
-							continue;
-						}
-						emails.push(person.email);
-						processedEmails.add(person.email);
-					}
-				}
-			}
-
-			if (doc.google_calendar_event?.attendees) {
-				for (const attendee of doc.google_calendar_event.attendees) {
-					if (attendee.email && !processedEmails.has(attendee.email)) {
-						if (!this.shouldIncludeAttendee(attendee.responseStatus ?? null)) {
-							processedEmails.add(attendee.email);
-							continue;
-						}
-						emails.push(attendee.email);
-						processedEmails.add(attendee.email);
-					}
+			for (const attendee of note.attendees) {
+				const resolved = this.resolveAttendeeName(attendee, overrideMap);
+				if (resolved && !names.includes(resolved)) {
+					names.push(resolved);
 				}
 			}
 		} catch (error) {
-			console.error('Error extracting attendee emails:', error);
+			console.error('Error extracting attendee names:', error);
 		}
+		return names;
+	}
 
+	private extractAttendeeEmails(note: GranolaNote): string[] {
+		const seen = new Set<string>();
+		const emails: string[] = [];
+		for (const attendee of note.attendees) {
+			if (attendee.email && !seen.has(attendee.email)) {
+				emails.push(attendee.email);
+				seen.add(attendee.email);
+			}
+		}
 		return emails;
 	}
 
-	private generatePeopleLinks(attendeeNames: string[], doc: GranolaDocument): string[] {
+	private generatePeopleLinks(attendeeNames: string[], note: GranolaNote): string[] {
 		if (!attendeeNames || attendeeNames.length === 0) {
 			return [];
 		}
 
 		const links: string[] = [];
-		const myName = this.getEffectiveMyName(doc);
+		const myName = this.getEffectiveMyName(note);
 
 		for (let name of attendeeNames) {
 			name = convertGermanUmlauts(name);
@@ -859,107 +444,9 @@ export default class GranolaSyncPlugin extends Plugin {
 		return links;
 	}
 
-	private getAttachmentFolder(noteFolder: string): string {
-		// getConfig is not in the public API types but exists at runtime
-		const attachmentFolderPath = (this.app.vault as any).getConfig('attachmentFolderPath') as string || '';
-
-		if (!attachmentFolderPath || attachmentFolderPath === '/') {
-			return '';
-		} else if (attachmentFolderPath === './') {
-			return noteFolder;
-		} else if (attachmentFolderPath.startsWith('./')) {
-			const subfolder = attachmentFolderPath.slice(2);
-			return noteFolder ? path.join(noteFolder, subfolder) : subfolder;
-		} else {
-			return attachmentFolderPath;
-		}
-	}
-
-	private async downloadAttachments(doc: GranolaDocument, token: string, noteFolder: string): Promise<string[]> {
-		if (!this.settings.downloadAttachments) {
-			return [];
-		}
-
-		const attachments = doc.attachments;
-		if (!attachments || !Array.isArray(attachments) || attachments.length === 0) {
-			return [];
-		}
-
-		const downloadedFiles: string[] = [];
-		const attachmentDir = this.getAttachmentFolder(noteFolder);
-
-		try {
-			if (attachmentDir) {
-				const folder = this.app.vault.getFolderByPath(attachmentDir);
-				if (!folder) {
-					await this.app.vault.createFolder(attachmentDir);
-				}
-			}
-
-			for (let i = 0; i < attachments.length; i++) {
-				const attachment = attachments[i];
-				try {
-					const url = attachment.url || attachment.file_url || attachment.download_url;
-
-					if (!url) {
-						console.warn('Attachment has no URL:', attachment);
-						continue;
-					}
-
-					const isCdnUrl = url.includes('cloudfront.net') || url.includes('cdn.');
-					const requestOptions: { url: string; method: string; headers?: Record<string, string> } = {
-						url: url,
-						method: 'GET',
-					};
-					if (!isCdnUrl) {
-						requestOptions.headers = {
-							'Authorization': 'Bearer ' + token,
-						};
-					}
-
-					const response = await requestUrl(requestOptions);
-
-					if (response.arrayBuffer) {
-						const contentType = response.headers?.['content-type'] || response.headers?.['Content-Type'];
-						const ext = getAttachmentExtension(attachment, contentType);
-
-						let baseFilename = attachment.filename || attachment.name;
-						if (!baseFilename) {
-							baseFilename = `attachment_${i + 1}`;
-						}
-
-						baseFilename = baseFilename.replace(/\.\w{3,4}$/, '');
-
-						const noteDate = doc.created_at ? formatDate(doc.created_at, 'YYYY-MM-DD_HH-mm') : '';
-						const filename = noteDate
-							? `${noteDate}_${baseFilename}.${ext}`
-							: `${baseFilename}.${ext}`;
-
-						const filePath = attachmentDir ? path.join(attachmentDir, filename) : filename;
-
-						const existingFile = this.app.vault.getAbstractFileByPath(filePath);
-						if (!existingFile) {
-							await this.app.vault.createBinary(filePath, response.arrayBuffer);
-						}
-
-						downloadedFiles.push(filename);
-					} else {
-						console.warn('No data received for attachment:', url);
-					}
-				} catch (attachmentError) {
-					console.error('Error downloading attachment:', attachment.url, attachmentError);
-				}
-			}
-		} catch (error) {
-			console.error('Error processing attachments:', error);
-		}
-
-		return downloadedFiles;
-	}
-
-	private generateFilename(doc: GranolaDocument): string {
-		const title = doc.title || 'Untitled Granola Note';
-		const docId = doc.id || 'unknown_id';
+	private generateFilename(note: GranolaNote): string {
+		const title = note.title || 'Untitled Granola Note';
+		const docId = note.id || 'unknown_id';
 
 		let createdDate = '';
 		let updatedDate = '';
@@ -968,16 +455,16 @@ export default class GranolaSyncPlugin extends Plugin {
 		let createdDateTime = '';
 		let updatedDateTime = '';
 
-		if (doc.created_at) {
-			createdDate = formatDate(doc.created_at, this.settings.dateFormat);
-			createdTime = formatDate(doc.created_at, 'HH-mm-ss');
-			createdDateTime = formatDate(doc.created_at, this.settings.dateFormat + '_HH-mm-ss');
+		if (note.created_at) {
+			createdDate = formatDate(note.created_at, this.settings.dateFormat);
+			createdTime = formatDate(note.created_at, 'HH-mm-ss');
+			createdDateTime = formatDate(note.created_at, this.settings.dateFormat + '_HH-mm-ss');
 		}
 
-		if (doc.updated_at) {
-			updatedDate = formatDate(doc.updated_at, this.settings.dateFormat);
-			updatedTime = formatDate(doc.updated_at, 'HH-mm-ss');
-			updatedDateTime = formatDate(doc.updated_at, this.settings.dateFormat + '_HH-mm-ss');
+		if (note.updated_at) {
+			updatedDate = formatDate(note.updated_at, this.settings.dateFormat);
+			updatedTime = formatDate(note.updated_at, 'HH-mm-ss');
+			updatedDateTime = formatDate(note.updated_at, this.settings.dateFormat + '_HH-mm-ss');
 		}
 
 		let filename = this.settings.filenameTemplate
@@ -1003,46 +490,18 @@ export default class GranolaSyncPlugin extends Plugin {
 		return filename;
 	}
 
-	private buildNoteContent(doc: GranolaDocument, transcript: string, attachmentFilenames: string[] = []): string {
+	private buildNoteContent(note: GranolaNote): string {
 		const sections: string[] = [];
-		const noteTitle = doc.title || 'Untitled Granola Note';
+		const noteTitle = note.title || 'Untitled Granola Note';
 
 		sections.push('# ' + noteTitle);
 
-		const myNotesContent = this.extractPanelContent(doc, 'my_notes');
-		if (myNotesContent && this.settings.includeMyNotes) {
-			const myNotesMarkdown = convertProseMirrorToMarkdown(myNotesContent);
-			if (myNotesMarkdown && myNotesMarkdown.trim()) {
-				sections.push('\n## My Notes\n\n' + myNotesMarkdown.trim());
-			}
+		if (this.settings.includeEnhancedNotes && note.summary_markdown && note.summary_markdown.trim()) {
+			sections.push('\n' + note.summary_markdown.trim());
 		}
 
-		const enhancedNotesContent = this.extractPanelContent(doc, 'enhanced_notes');
-		if (enhancedNotesContent && this.settings.includeEnhancedNotes) {
-			const enhancedNotesMarkdown = convertProseMirrorToMarkdown(enhancedNotesContent);
-			if (enhancedNotesMarkdown && enhancedNotesMarkdown.trim()) {
-				if (myNotesContent && this.settings.includeMyNotes) {
-					sections.push('\n## Enhanced Notes\n\n' + enhancedNotesMarkdown.trim());
-				} else {
-					sections.push('\n' + enhancedNotesMarkdown.trim());
-				}
-			}
-		}
-
-		if (this.settings.includeFullTranscript && transcript && transcript !== 'no_transcript') {
-			sections.push('\n## Transcript\n\n' + transcript);
-		}
-
-		if (attachmentFilenames.length > 0) {
-			const attachmentLines = attachmentFilenames.map(filePath => {
-				const ext = filePath.split('.').pop()?.toLowerCase() || '';
-				if (IMAGE_EXTENSIONS.includes(ext)) {
-					return '![[' + filePath + ']]';
-				} else {
-					return '[[' + filePath + ']]';
-				}
-			});
-			sections.push('\n## Attachments\n\n' + attachmentLines.join('\n'));
+		if (this.settings.includeFullTranscript && note.transcript && note.transcript.length > 0) {
+			sections.push('\n## Transcript\n\n' + transcriptToMarkdown(note.transcript));
 		}
 
 		return sections.join('\n');
@@ -1056,21 +515,18 @@ export default class GranolaSyncPlugin extends Plugin {
 		return field.enabled;
 	}
 
-	private buildFrontmatter(doc: GranolaDocument, attachmentFilenames: string[] = []): string {
-		const title = doc.title || 'Untitled Granola Note';
-		const docId = doc.id || 'unknown_id';
+	private buildFrontmatter(note: GranolaNote): string {
+		const title = note.title || 'Untitled Granola Note';
+		const docId = note.id || 'unknown_id';
 
-		const attendeeNames = this.extractAttendeeNames(doc);
-		const peopleLinks = this.generatePeopleLinks(attendeeNames, doc);
-		const attendeeEmails = this.extractAttendeeEmails(doc);
-		const companyNames = this.extractCompanyNames(doc);
-		const meetingPlatform = this.detectMeetingPlatform(doc);
+		const attendeeNames = this.extractAttendeeNames(note);
+		const peopleLinks = this.generatePeopleLinks(attendeeNames, note);
+		const attendeeEmails = this.extractAttendeeEmails(note);
+		const companyNames = this.extractCompanyNames(note);
 
-		const calendarEvent = doc.google_calendar_event;
-		const scheduledStart = calendarEvent?.start?.dateTime;
-		const scheduledEnd = calendarEvent?.end?.dateTime;
+		const scheduledStart = note.calendar_event?.scheduled_start_time ?? null;
+		const scheduledEnd = note.calendar_event?.scheduled_end_time ?? null;
 
-		// Field generators - each returns the YAML string for that field or null to skip
 		const fieldGenerators: Record<string, () => string | null> = {
 			'category': () => {
 				if (!this.settings.customCategory) return null;
@@ -1080,8 +536,8 @@ export default class GranolaSyncPlugin extends Plugin {
 			'date': () => {
 				if (scheduledStart) {
 					return 'date: ' + formatDateTimeProperty(scheduledStart) + '\n';
-				} else if (doc.created_at) {
-					return 'date: ' + formatDateTimeProperty(doc.created_at) + '\n';
+				} else if (note.created_at) {
+					return 'date: ' + formatDateTimeProperty(note.created_at) + '\n';
 				}
 				return 'date:\n';
 			},
@@ -1092,14 +548,14 @@ export default class GranolaSyncPlugin extends Plugin {
 				return 'dateEnd:\n';
 			},
 			'noteStarted': () => {
-				if (doc.created_at) {
-					return 'noteStarted: ' + formatDateTimeProperty(doc.created_at) + '\n';
+				if (note.created_at) {
+					return 'noteStarted: ' + formatDateTimeProperty(note.created_at) + '\n';
 				}
 				return 'noteStarted:\n';
 			},
 			'noteEnded': () => {
-				if (doc.updated_at) {
-					return 'noteEnded: ' + formatDateTimeProperty(this.getLatestUpdatedAt(doc)) + '\n';
+				if (note.updated_at) {
+					return 'noteEnded: ' + formatDateTimeProperty(note.updated_at) + '\n';
 				}
 				return 'noteEnded:\n';
 			},
@@ -1112,12 +568,7 @@ export default class GranolaSyncPlugin extends Plugin {
 				}
 				return result;
 			},
-			'loc': () => {
-				if (meetingPlatform) {
-					return 'loc:\n  - ' + escapeYamlValue(meetingPlatform) + '\n';
-				}
-				return 'loc:\n';
-			},
+			'loc': () => 'loc:\n',
 			'people': () => {
 				let result = 'people:\n';
 				if (peopleLinks.length > 0) {
@@ -1148,17 +599,14 @@ export default class GranolaSyncPlugin extends Plugin {
 			'granola_id': () => 'granola_id: ' + escapeYamlValue(docId) + '\n',
 			'title': () => 'title: ' + escapeYamlValue(title) + '\n',
 			'granola_url': () => {
-				if (!this.settings.includeGranolaUrl) return null;
-				return 'granola_url: https://notes.granola.ai/d/' + docId + '\n';
+				if (!this.settings.includeGranolaUrl || !note.web_url) return null;
+				return 'granola_url: ' + note.web_url + '\n';
 			},
 		};
 
 		let frontmatter = '---\n';
-
-		// Iterate over fields in configured order
 		for (const field of this.settings.frontmatterFields) {
 			if (!this.isFieldEnabled(field.key)) continue;
-
 			const generator = fieldGenerators[field.key];
 			if (generator) {
 				const value = generator();
@@ -1167,7 +615,6 @@ export default class GranolaSyncPlugin extends Plugin {
 				}
 			}
 		}
-
 		frontmatter += '---\n';
 		return frontmatter;
 	}
@@ -1182,12 +629,13 @@ export default class GranolaSyncPlugin extends Plugin {
 			(file): file is TFile => file instanceof TFile && file.extension === 'md'
 		);
 
+		const target = granolaId.toLowerCase();
 		for (const file of filesToSearch) {
 			try {
 				const cache = this.app.metadataCache.getFileCache(file);
 				if (cache?.frontmatter?.granola_id) {
-					const cachedId = String(cache.frontmatter.granola_id).trim();
-					if (cachedId === granolaId) {
+					const cachedId = String(cache.frontmatter.granola_id).trim().toLowerCase();
+					if (cachedId === target) {
 						return file;
 					}
 				}
@@ -1199,50 +647,92 @@ export default class GranolaSyncPlugin extends Plugin {
 		return null;
 	}
 
-	private async processDocument(doc: GranolaDocument, token: string): Promise<boolean> {
+	/**
+	 * The new API's `web_url` embeds the underlying UUID that the legacy plugin used
+	 * as `granola_id`. We extract it so we can relink notes synced with the old format.
+	 */
+	private extractLegacyUuidFromWebUrl(webUrl: string | null | undefined): string | null {
+		if (!webUrl) return null;
+		const m = webUrl.match(/\/d\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i);
+		return m ? m[1] : null;
+	}
+
+	private replaceOrAppendFrontmatterLine(frontmatter: string, key: string, value: string): string {
+		const re = new RegExp(`^${key}:.*$`, 'm');
+		if (re.test(frontmatter)) {
+			return frontmatter.replace(re, `${key}: ${value}`);
+		}
+		const sep = frontmatter.endsWith('\n') || frontmatter.length === 0 ? '' : '\n';
+		return frontmatter + sep + `${key}: ${value}`;
+	}
+
+	private async processDocument(note: GranolaNote): Promise<boolean> {
 		try {
-			const title = doc.title || 'Untitled Granola Note';
-			const docId = doc.id || 'unknown_id';
-			const transcript = doc.transcript || 'no_transcript';
+			const docId = note.id || 'unknown_id';
 
-			const enhancedNotesContent = this.extractPanelContent(doc, 'enhanced_notes');
-			const enhancedNotesMarkdown = enhancedNotesContent ? convertProseMirrorToMarkdown(enhancedNotesContent).trim() : '';
-
-			if (!enhancedNotesMarkdown) {
+			// API only returns notes with AI summaries, but defend anyway.
+			if (!note.summary_markdown || !note.summary_markdown.trim()) {
 				return false;
 			}
 
-			const attachmentFilenames = await this.downloadAttachments(doc, token, this.settings.syncDirectory);
+			// Primary lookup: by current granola_id (the not_* slug).
+			let existingFile = await this.findExistingNoteByGranolaId(docId);
+			let isLegacyRelink = false;
 
-			const existingFile = await this.findExistingNoteByGranolaId(docId);
+			// Fallback: if a previous version of this plugin wrote the note with the
+			// legacy UUID as granola_id, we can recover it via the UUID embedded in web_url.
+			if (!existingFile) {
+				const legacyUuid = this.extractLegacyUuidFromWebUrl(note.web_url);
+				if (legacyUuid) {
+					existingFile = await this.findExistingNoteByGranolaId(legacyUuid);
+					isLegacyRelink = !!existingFile;
+				}
+			}
 
 			if (existingFile) {
 				if (this.settings.skipExistingNotes) {
 					const cache = this.app.metadataCache.getFileCache(existingFile);
 					const storedNoteEnded = cache?.frontmatter?.noteEnded as string | undefined;
-					const apiUpdatedAt = formatDateTimeProperty(this.getLatestUpdatedAt(doc));
+					const apiUpdatedAt = formatDateTimeProperty(note.updated_at);
+					const contentIsNewer = !!(storedNoteEnded && apiUpdatedAt && apiUpdatedAt > storedNoteEnded);
 
-					if (storedNoteEnded && apiUpdatedAt && apiUpdatedAt > storedNoteEnded) {
-						const noteContent = this.buildNoteContent(doc, transcript, attachmentFilenames);
+					if (isLegacyRelink || contentIsNewer) {
+						const noteContent = this.buildNoteContent(note);
 						await this.app.vault.process(existingFile, (existingContent) => {
 							const frontmatterMatch = existingContent.match(/^---\n([\s\S]*?)\n---\n/);
 							if (frontmatterMatch) {
 								let existingFrontmatter = frontmatterMatch[1];
-								existingFrontmatter = existingFrontmatter.replace(
-									/^noteEnded:.*$/m,
-									'noteEnded: ' + apiUpdatedAt
-								);
-								return '---\n' + existingFrontmatter + '\n---\n' + noteContent;
+								if (isLegacyRelink) {
+									existingFrontmatter = this.replaceOrAppendFrontmatterLine(
+										existingFrontmatter,
+										'granola_id',
+										escapeYamlValue(docId)
+									);
+								}
+								if (contentIsNewer && apiUpdatedAt) {
+									existingFrontmatter = this.replaceOrAppendFrontmatterLine(
+										existingFrontmatter,
+										'noteEnded',
+										apiUpdatedAt
+									);
+								}
+								if (contentIsNewer) {
+									return '---\n' + existingFrontmatter + '\n---\n' + noteContent;
+								}
+								// Pure relink: rewrite frontmatter but keep the body untouched
+								// so any manual edits in the body survive.
+								const rest = existingContent.slice(frontmatterMatch[0].length);
+								return '---\n' + existingFrontmatter + '\n---\n' + rest;
 							}
-							const frontmatter = this.buildFrontmatter(doc, attachmentFilenames);
+							const frontmatter = this.buildFrontmatter(note);
 							return frontmatter + noteContent;
 						});
 					}
 					return true;
 				}
 
-				const frontmatter = this.buildFrontmatter(doc, attachmentFilenames);
-				const noteContent = this.buildNoteContent(doc, transcript, attachmentFilenames);
+				const frontmatter = this.buildFrontmatter(note);
+				const noteContent = this.buildNoteContent(note);
 				const finalMarkdown = frontmatter + noteContent;
 
 				await this.app.vault.process(existingFile, () => finalMarkdown);
@@ -1250,11 +740,11 @@ export default class GranolaSyncPlugin extends Plugin {
 			}
 
 			// Create new note
-			const frontmatter = this.buildFrontmatter(doc, attachmentFilenames);
-			const noteContent = this.buildNoteContent(doc, transcript, attachmentFilenames);
+			const frontmatter = this.buildFrontmatter(note);
+			const noteContent = this.buildNoteContent(note);
 			const finalMarkdown = frontmatter + noteContent;
 
-			const filename = this.generateFilename(doc) + '.md';
+			const filename = this.generateFilename(note) + '.md';
 			const targetDirectory = this.settings.syncDirectory;
 			const filepath = path.join(targetDirectory, filename);
 
@@ -1277,8 +767,8 @@ export default class GranolaSyncPlugin extends Plugin {
 				if (this.settings.existingFileAction === 'skip') {
 					return false;
 				} else if (this.settings.existingFileAction === 'timestamp') {
-					const timestamp = formatDate(doc.created_at, 'HH-mm');
-					const baseFilename = this.generateFilename(doc);
+					const timestamp = formatDate(note.created_at, 'HH-mm');
+					const baseFilename = this.generateFilename(note);
 					const uniqueFilename = baseFilename + '_' + timestamp + '.md';
 					finalFilepath = path.join(targetDirectory, uniqueFilename);
 
@@ -1418,3 +908,6 @@ export default class GranolaSyncPlugin extends Plugin {
 		}
 	}
 }
+
+// Re-export for documentation/test consumers
+export { GRANOLA_API_DOCS_URL };
